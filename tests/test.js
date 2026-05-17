@@ -89,6 +89,40 @@ test("crossover aligns genes by innovation and keeps fitter parent structure", (
     assert.ok(child.connections.some(connection => connection.innovation === fitter.connections[fitter.connections.length - 1].innovation))
 })
 
+test("recurrent connections preserve delayed state across steps", () => {
+    const network = new Network({
+        activator: false,
+        layers: [{ neurons: 1, activator: false }, { neurons: 1, activator: false }]
+    })
+    const input = network.layers[0].n[0]
+    const output = network.layers[1].n[0]
+    network.connections = []
+    input.inputs = []
+    input.outputs = []
+    output.inputs = []
+    output.outputs = []
+    input.bias = 0
+    output.bias = 0
+    input.activator = false
+    output.activator = false
+    network.connect({ from: input, timestep: 0, to: output, weight: 1 })
+    network.connect({ from: output, timestep: 1, to: output, weight: 1 })
+
+    assert.deepEqual(network.calculate([1], { steps: 1 }), [1])
+    assert.deepEqual(network.step([0]), [1])
+    assert.deepEqual(network.step([0]), [1])
+})
+
+test("recurrent ecosystem mutations can add backward or self connections", () => {
+    setSeed(17)
+    const ecosystem = new Ecosystem({ recurrent: true, size: 1 })
+    ecosystem.seed({ layers: [1, 1, 1] })
+    const network = ecosystem.population[0]
+    ecosystem.connectGene(network, network.layers[2].n[0], network.layers[1].n[0], { timestep: 1, weight: 0.5 })
+    assert.ok(network.connections.some(connection => connection.from.id === network.layers[2].n[0].id && connection.to.id === network.layers[1].n[0].id))
+    assert.ok(network.connections.some(connection => connection.timestep >= 1 && connection.from.position >= connection.to.position))
+})
+
 test("ecosystem speciation and reproduction keep a stable deterministic population", () => {
     setSeed(7)
     const ecosystem = new Ecosystem({

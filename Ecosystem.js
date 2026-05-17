@@ -29,6 +29,7 @@ class Ecosystem {
         this.elitism = config.elitism || 0.05
         this.stagnation = config.stagnation || 15
         this.disableOnInheritance = config.disableOnInheritance || 0.75
+        this.recurrent = typeof config.recurrent !== "undefined" ? config.recurrent : true
         this.nextConnectionInnovation = config.nextConnectionInnovation || 0
         this.nextNodeInnovation = config.nextNodeInnovation || 0
         this.nextSpeciesId = config.nextSpeciesId || 0
@@ -53,6 +54,10 @@ class Ecosystem {
         const indexes = {}
         network.layers.forEach((layer, index) => layer.n.forEach(neuron => (indexes[neuron.id] = index)))
         return indexes
+    }
+
+    isRecurrentPair(from, to) {
+        return (from.position ?? 0) >= (to.position ?? 0)
     }
 
     nodeGene(neuron) {
@@ -365,19 +370,22 @@ class Ecosystem {
         network.neurons.forEach(from =>
             network.neurons.forEach(to => {
                 if (from.id === to.id) return
-                if ((from.position ?? 0) >= (to.position ?? 0)) return
-                if (from.kind === "output") return
                 if (to.kind === "input") return
+                if (!this.recurrent && this.isRecurrentPair(from, to)) return
+                if (!this.recurrent && from.kind === "output") return
                 candidates.push({ from, to })
             })
         )
         const choice = random(candidates)
         if (!choice) return
-        this.connectGene(network, choice.from, choice.to, { weight: randomFloat(-1, 1) })
+        this.connectGene(network, choice.from, choice.to, {
+            timestep: this.isRecurrentPair(choice.from, choice.to) ? 1 : 0,
+            weight: randomFloat(-1, 1)
+        })
     }
 
     mutateAddNode(network) {
-        const connection = random(network.connections.filter(item => item.s))
+        const connection = random(network.connections.filter(item => item.s && !this.isRecurrentPair(item.from, item.to)))
         if (!connection) return
 
         const split = this.registerSplitInnovation(connection)

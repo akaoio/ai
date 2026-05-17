@@ -93,6 +93,15 @@ class Network {
         return this.i
     }
 
+    get recurrentSteps() {
+        return this.rs
+    }
+
+    set recurrentSteps(value) {
+        this.rs = value
+        return this.rs
+    }
+
     get input() {
         return this.layers[0].n.map(neuron => neuron.input)
     }
@@ -120,6 +129,8 @@ class Network {
         this.r = config.r ?? config.rate ?? 0.01 // Learning rate, used in FF network.
         this.m = config.m ?? config.momentum ?? 0.01 // Momentum, used in FF network.
         this.i = config.i ?? config.iterations ?? 0 // Iterations, used in FF network.
+        this.rs = config.rs ?? config.recurrentSteps ?? 2 // How many recurrent activation steps to run when delayed/recurrent edges exist.
+        this.h = {} // Recurrent activation history by neuron id.
     }
 
     layer(config = {}) {
@@ -155,6 +166,7 @@ class Network {
     connect(config = {}) {
         // If the given config is an array of connections.
         if (Array.isArray(config)) return config.forEach(item => this.connect(item))
+        const explicitEndpoints = ["<", ">", "from", "to"].some(key => typeof config[key] !== "undefined")
 
         // If FROM and TO are string/number, try to get their relative neurons.
         if (!["undefined", "object"].includes(typeof config["<"])) config["<"] = this.getNeuron(config["<"])
@@ -166,13 +178,15 @@ class Network {
         const to = config[">"] || config.to || {}
 
         // If FROM and TO are neurons.
-        if (from.outputs && to.inputs && !this.connections.some(c => c.from.id === from.id && c.to.id === to.id)) {
+        if (Array.isArray(from?.[">"]) && Array.isArray(to?.["<"]) && !this.connections.some(c => c.from.id === from.id && c.to.id === to.id)) {
             const connection = new Connection(config)
             return this.c.push(connection)
         }
 
         // If FROM and TO are layers.
         if (from.neurons?.length && to.neurons?.length) return from.neurons.forEach(_from => to.neurons.forEach(_to => this.connect({ from: _from, to: _to })))
+
+        if (explicitEndpoints) return
 
         // If FROM and TO are not provided, connect each layer's neurons with its surrouding layers' neurons.
         let i
@@ -189,17 +203,91 @@ class Network {
         this.iterations++
     }
 
-    clear() {
+    clear(config = {}) {
         this.neurons.forEach(neuron => {
             neuron.input = 0
             neuron.output = undefined
         })
+        if (config.history) this.resetState()
     }
 
-    calculate(input = []) {
-        this.clear()
-        this.input = input
-        return this.propagate()
+    layerIndexes() {
+        const indexes = {}
+        this.layers.forEach((layer, index) => layer.n.forEach(neuron => (indexes[neuron.id] = index)))
+        return indexes
+    }
+
+    isRecurrentConnection(connection, indexes = this.layerIndexes()) {
+        return indexes[connection.from.id] >= indexes[connection.to.id]
+    }
+
+    maxDelay(indexes = this.layerIndexes()) {
+        return this.connections.reduce((value, connection) => {
+            if (!this.isRecurrentConnection(connection, indexes)) return value
+            return Math.max(value, Math.max(1, Math.round(connection.timestep || 1)))
+        }, 1)
+    }
+
+    hasRecurrentConnections(indexes = this.layerIndexes()) {
+        return this.connections.some(connection => this.isRecurrentConnection(connection, indexes))
+    }
+
+    resetState() {
+        const size = this.maxDelay()
+        this.h = {}
+        this.neurons.forEach(neuron => {
+            this.h[neuron.id] = Array(size).fill(0)
+        })
+        return this.h
+    }
+
+    history(neuron, delay = 1) {
+        const values = this.h?.[neuron.id] || []
+        const index = values.length - Math.max(1, Math.round(delay))
+        return values[index] || 0
+    }
+
+    step(input = [], config = {}) {
+        const indexes = this.layerIndexes()
+        if (config.reset) this.resetState()
+        if (!Object.keys(this.h || {}).length) this.resetState()
+
+        this.layers[0]?.n.forEach((neuron, index) => {
+            neuron.input = input[index] ?? 0
+        })
+
+        this.layers.forEach((layer, index) =>
+            layer.neurons.forEach(neuron => {
+                if (index !== 0 || neuron.inputs.length) {
+                    neuron.input = neuron.inputs.reduce((value, connection) => {
+                        const source = this.isRecurrentConnection(connection, indexes) ? this.history(connection.from, connection.timestep) : connection.from.output || 0
+                        return value + connection.weight * source
+                    }, 0)
+                }
+                const activator = typeof neuron.activator !== "undefined" ? neuron.activator : typeof layer.activator !== "undefined" ? layer.activator : this.activator
+                if (index === 0 && !neuron.inputs.length) neuron.output = neuron.input
+                else neuron.output = this.activate(neuron, activator)
+            })
+        )
+
+        const historySize = this.maxDelay(indexes)
+        this.neurons.forEach(neuron => {
+            if (!this.h[neuron.id]) this.h[neuron.id] = []
+            this.h[neuron.id].push(neuron.output || 0)
+            while (this.h[neuron.id].length > historySize) this.h[neuron.id].shift()
+        })
+
+        return this.output
+    }
+
+    calculate(input = [], config = {}) {
+        const options = typeof config === "number" ? { steps: config } : config
+        const indexes = this.layerIndexes()
+        if (options.reset !== false) this.clear({ history: true })
+        const steps = options.steps || (this.hasRecurrentConnections(indexes) ? Math.max(this.recurrentSteps, this.maxDelay(indexes)) : 1)
+        let output = []
+        for (let i = 0; i < steps; i++) output = this.step(input)
+        return output
     }
 
     activate(neuron, activator) {
@@ -208,39 +296,7 @@ class Network {
     }
 
     propagate() {
-        const activated = {}
-
-        const layers = {}
-
-        this.layers.forEach((layer, index) => layer.neurons.forEach(neuron => (layers[neuron.id] = index)))
-
-        const activate = (neurons = []) => {
-            const next = []
-            neurons.forEach(neuron => {
-                const index = layers[neuron.id]
-                const layer = this.layers[index]
-                const activator = typeof neuron.activator !== "undefined" ? neuron.activator : typeof layer.activator !== "undefined" ? layer.activator : this.activator
-                // If this is a standalone neuron, just skip it.
-                if (!neuron.inputs.length && !neuron.outputs.length) return
-                // If this is input layer, and the neuron has no input connections, then its output equals to its input.
-                if (index === 0 && neuron.output === undefined) neuron.output = neuron.input
-                // Activate this neuron.
-                else neuron.output = this.activate(neuron, activator)
-                // Calculate the list of next neurons to be activated.
-                neuron.outputs.forEach(connection => {
-                    if (typeof activated[connection.id] === "undefined") activated[connection.id] = 0
-                    if (activated[connection.id] >= connection.timestep) return
-                    if (!next.includes(connection.to.id)) next.push(connection.to.id)
-                    activated[connection.id]++
-                })
-            })
-            if (next.length) activate(next.map(id => this.getNeuron(id)).filter(Boolean))
-        }
-
-        activate(this.layers[0].neurons)
-
-        // Return the output layer.
-        return this.output
+        return this.step(this.input)
     }
 
     backpropagate(target) {

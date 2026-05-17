@@ -36,8 +36,9 @@ The current NEAT path now uses:
 - deterministic node-split history for add-node mutations
 - compatibility distance based on excess, disjoint, and matching genes
 - crossover aligned by innovation numbers instead of raw from/to matching
+- recurrent/self connections with delayed state via `step()` / `calculate(..., { steps })`
 
-The implementation is intentionally **feedforward-safe**. Recurrent canonical NEAT is still future work.
+Feedforward and recurrent canonical NEAT now share the same innovation-tracked genetics. Recurrent evaluation uses delayed state buffers, while feedforward use stays compatible with the existing API.
 
 ## Zig + JS split
 

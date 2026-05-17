@@ -12,8 +12,8 @@ NEAT ALGO
     - deterministic split history for add-node mutation
     - safer `mutate()` defaults for feedforward NEAT
 - Why NEAT still needs more work:
-    - recurrent topology is still not a reliable target
     - benchmark coverage should expand beyond kernel-level tests
+    - recurrent tasks need broader benchmark/evaluation suites than XOR-style sanity checks
 
 TODOS:
 
