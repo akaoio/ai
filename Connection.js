@@ -9,6 +9,7 @@ class Connection {
         this.t = !isNaN(config.t) ? Number(config.t) : !isNaN(config.timestep) ? Number(config.timestep) : 1 // Timestep, used in Recurrent Neural Network.
         this.c = !isNaN(config.c) ? Number(config.c) : !isNaN(config.change) ? Number(config.change) : 0
         this.s = typeof config.s !== "undefined" ? config.s : typeof config.state !== "undefined" ? config.state : true // State, used in NEAT network, true for ACTIVE, and false for INACTIVE.
+        this.x = !isNaN(config.x) ? Number(config.x) : !isNaN(config.innovation) ? Number(config.innovation) : undefined // Historical marking for canonical NEAT.
         if (!this["<"] || !this[">"]) return undefined
         this["<"]?.[">"].push(this)
         this[">"]?.["<"].push(this)
@@ -71,6 +72,15 @@ class Connection {
     set state(value) {
         this.s = value
         return this.s
+    }
+
+    get innovation() {
+        return this.x
+    }
+
+    set innovation(value) {
+        this.x = value
+        return this.x
     }
 }
 

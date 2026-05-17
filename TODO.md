@@ -8,11 +8,10 @@ NEAT ALGO
         - calculate the output
 - Baseline fixes landed:
     - deterministic test entrypoint via `npm test`
-    - improved `Ecosystem.speciate()`
-    - improved `Ecosystem.produce()`
+    - canonical innovation-number based `speciate()`, `produce()`, and `crossover()`
+    - deterministic split history for add-node mutation
     - safer `mutate()` defaults for feedforward NEAT
 - Why NEAT still needs more work:
-    - innovation-number based crossover/speciation is still missing
     - recurrent topology is still not a reliable target
     - benchmark coverage should expand beyond kernel-level tests
 

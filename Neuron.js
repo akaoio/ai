@@ -7,11 +7,13 @@ class Neuron {
         this[">"] = config[">"] || config.outputs || [] // Outcoming connections.
         this.a = typeof config.a !== "undefined" ? config.a : typeof config.activator !== "undefined" ? config.activator : undefined // Activator, replace layer/network activator.
         this.b = !isNaN(config.b) ? Number(config.b) : !isNaN(config.bias) ? Number(config.bias) : random(-1, 1) // Bias. Make sure 0 is also be assigned.
-        this.i = config.i || config.input || 0 // Input.
-        this.o = config.o || config.output || 0 // Output.
-        this.e = config.e || config.error || 0 // Error, used in backpropagation.
-        this.d = config.d || config.delta || 0 // Delta, used in backpropagation.
-        this.s = config.s || config.state || true // State, used in NEAT network, true for ACTIVE, and false for INACTIVE.
+        this.i = config.i ?? config.input ?? 0 // Input.
+        this.o = config.o ?? config.output ?? 0 // Output.
+        this.e = config.e ?? config.error ?? 0 // Error, used in backpropagation.
+        this.d = config.d ?? config.delta ?? 0 // Delta, used in backpropagation.
+        this.s = typeof config.s !== "undefined" ? config.s : typeof config.state !== "undefined" ? config.state : true // State, used in NEAT network, true for ACTIVE, and false for INACTIVE.
+        this.k = config.k || config.kind // Gene kind, used in canonical NEAT to identify input/hidden/output nodes.
+        this.p = !isNaN(config.p) ? Number(config.p) : !isNaN(config.position) ? Number(config.position) : undefined // Layer position, used to rebuild feedforward phenotypes.
     }
 
     get id() {
@@ -97,6 +99,24 @@ class Neuron {
     set activator(value) {
         this.a = value
         return this.a
+    }
+
+    get kind() {
+        return this.k
+    }
+
+    set kind(value) {
+        this.k = value
+        return this.k
+    }
+
+    get position() {
+        return this.p
+    }
+
+    set position(value) {
+        this.p = value
+        return this.p
     }
 }
 

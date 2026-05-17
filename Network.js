@@ -106,6 +106,11 @@ class Network {
         return [...this.layers].pop().n.map(neuron => neuron.output)
     }
 
+    getNeuron(id) {
+        if (typeof id === "object") return id
+        return this.neurons.find(neuron => neuron.id === Number(id))
+    }
+
     initialize(config = {}) {
         this.l = [] // Layers.
         this.n = [] // Neurons.
@@ -135,10 +140,10 @@ class Network {
     neuron(config = {}) {
         if (Array.isArray(config)) return config.forEach(item => this.neuron(item))
         // Create neuron with or without given config.
-        if (isNaN(config["#"]) || isNaN(config.id)) config.id = this.neurons.length
+        if (isNaN(config["#"]) && isNaN(config.id)) config.id = this.neurons.length
         const neuron = new Neuron(config)
         if (neuron) {
-            if (config.layer) {
+            if (typeof config.layer !== "undefined") {
                 if (!isNaN(config.layer)) config.layer = this.layers[config.layer]
                 config.layer.n.push(neuron)
             }
@@ -152,10 +157,10 @@ class Network {
         if (Array.isArray(config)) return config.forEach(item => this.connect(item))
 
         // If FROM and TO are string/number, try to get their relative neurons.
-        if (!["undefined", "object"].includes(typeof config["<"])) config["<"] = this.neurons[Number(config["<"])]
-        if (!["undefined", "object"].includes(typeof config[">"])) config[">"] = this.neurons[Number(config[">"])]
-        if (!["undefined", "object"].includes(typeof config.from)) config.from = this.neurons[Number(config.from)]
-        if (!["undefined", "object"].includes(typeof config.to)) config.to = this.neurons[Number(config.to)]
+        if (!["undefined", "object"].includes(typeof config["<"])) config["<"] = this.getNeuron(config["<"])
+        if (!["undefined", "object"].includes(typeof config[">"])) config[">"] = this.getNeuron(config[">"])
+        if (!["undefined", "object"].includes(typeof config.from)) config.from = this.getNeuron(config.from)
+        if (!["undefined", "object"].includes(typeof config.to)) config.to = this.getNeuron(config.to)
 
         const from = config["<"] || config.from || {}
         const to = config[">"] || config.to || {}
@@ -229,7 +234,7 @@ class Network {
                     activated[connection.id]++
                 })
             })
-            if (next.length) activate(next.map(id => this.neurons[id]))
+            if (next.length) activate(next.map(id => this.getNeuron(id)).filter(Boolean))
         }
 
         activate(this.layers[0].neurons)
@@ -302,7 +307,7 @@ class Network {
         // Restore network layers.
         data.l.forEach(item => {
             if (Array.isArray(item)) item = { n: item }
-            item.n = item.n.map(neuron => this.neurons[neuron])
+            item.n = item.n.map(neuron => this.getNeuron(neuron))
             this.layer({ ...item })
         })
         // Restore network connections.

@@ -1,5 +1,6 @@
 import Network from "../Network.js"
 import Visualization from "../Visualization.js"
+import { setSeed } from "../Utils.js"
 import { XOR, AND, OR, RAND } from "./exams.js"
 
 const visualization = typeof document !== "undefined" ? new Visualization({ svg: document.querySelector("#visualization") }) : undefined
@@ -7,9 +8,10 @@ const visualization = typeof document !== "undefined" ? new Visualization({ svg:
 const tests = []
 
 const testIO = (data, config = {}) => {
+    setSeed(JSON.stringify({ data, config, mode: "io" }))
     const network = new Network({ layers: [2, 0, 10, 0, 1], ...config })
     for (let i = 0; i < 80000; i++) {
-        const item = data[Math.floor(Math.random() * data.length)]
+        const item = data[i % data.length]
         network.train(item.input, item.output)
     }
 
@@ -24,9 +26,10 @@ const testIO = (data, config = {}) => {
 }
 
 const testEncodeDecode = (data, config = {}) => {
+    setSeed(JSON.stringify({ data, config, mode: "encode" }))
     const network = new Network({ layers: [2, 0, 10, 0, 1], ...config })
     for (let i = 0; i < 80000; i++) {
-        const item = data[Math.floor(Math.random() * data.length)]
+        const item = data[i % data.length]
         network.train(item.input, item.output)
     }
 

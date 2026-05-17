@@ -5,7 +5,7 @@ Generic AI experimentation platform in JavaScript with optional Zig/WebAssembly 
 ## What is in the repo
 
 - `Network`, `Layer`, `Neuron`, `Connection`: graph-based neural primitives
-- `Ecosystem`: evolutionary training loop for NEAT-style populations
+- `Ecosystem`: canonical feedforward NEAT evolution loop with innovation tracking
 - `Benchmark`: generic timing helpers
 - `Wasm`: JS + Zig/WASM kernel bridge for dense math workloads
 
@@ -27,6 +27,17 @@ The repository stays domain-agnostic on purpose. Nothing in the runtime is poker
 - evolutionary search
 - self-play evaluators
 - future task-specific agents built on top of the core primitives
+
+## Canonical NEAT notes
+
+The current NEAT path now uses:
+
+- historical connection innovation numbers
+- deterministic node-split history for add-node mutations
+- compatibility distance based on excess, disjoint, and matching genes
+- crossover aligned by innovation numbers instead of raw from/to matching
+
+The implementation is intentionally **feedforward-safe**. Recurrent canonical NEAT is still future work.
 
 ## Zig + JS split
 

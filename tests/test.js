@@ -44,6 +44,51 @@ test("encode/decode preserves trained outputs", () => {
     )
 })
 
+test("seeded genomes share canonical innovation numbers", () => {
+    setSeed(3)
+    const ecosystem = new Ecosystem({ size: 3 })
+    ecosystem.seed({ layers: [2, 0, 1] })
+    const innovations = ecosystem.population.map(individual => individual.connections.map(connection => connection.innovation))
+    assert.deepEqual(innovations[0], innovations[1])
+    assert.deepEqual(innovations[1], innovations[2])
+    assert.deepEqual(ecosystem.population[0].neurons.map(neuron => neuron.kind), ["input", "input", "output"])
+})
+
+test("splitting the same historical connection reuses node and connection innovations", () => {
+    setSeed(9)
+    const ecosystem = new Ecosystem({ size: 2 })
+    ecosystem.seed({ layers: [1, 0, 1] })
+    const [first, second] = ecosystem.population
+
+    ecosystem.mutateAddNode(first)
+    ecosystem.mutateAddNode(second)
+
+    const hiddenA = first.neurons.find(neuron => neuron.kind === "hidden")
+    const hiddenB = second.neurons.find(neuron => neuron.kind === "hidden")
+    assert.ok(hiddenA)
+    assert.ok(hiddenB)
+    assert.equal(hiddenA.id, hiddenB.id)
+    assert.deepEqual(
+        first.connections.map(connection => connection.innovation).sort((a, b) => a - b),
+        second.connections.map(connection => connection.innovation).sort((a, b) => a - b)
+    )
+})
+
+test("crossover aligns genes by innovation and keeps fitter parent structure", () => {
+    setSeed(11)
+    const ecosystem = new Ecosystem({ size: 2 })
+    ecosystem.seed({ layers: [1, 0, 1] })
+    const [fitter, weaker] = ecosystem.population
+    ecosystem.mutateAddNode(fitter)
+    fitter.fitness = 10
+    weaker.fitness = 1
+
+    const child = ecosystem.crossover(fitter, weaker)
+    assert.ok(child.neurons.some(neuron => neuron.kind === "hidden"))
+    assert.ok(child.connections.every(connection => !isNaN(connection.innovation)))
+    assert.ok(child.connections.some(connection => connection.innovation === fitter.connections[fitter.connections.length - 1].innovation))
+})
+
 test("ecosystem speciation and reproduction keep a stable deterministic population", () => {
     setSeed(7)
     const ecosystem = new Ecosystem({
