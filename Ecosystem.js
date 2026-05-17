@@ -1,12 +1,12 @@
 import Network from "./Network.js"
-import { random, merge } from "./Utils.js"
+import { chance, merge, random, randomFloat } from "./Utils.js"
 import activators from "./Activators.js"
 
 class Ecosystem {
     constructor(config = {}) {
         this.mutation = merge(
             {
-                layer: 0.001,
+                layer: 0,
                 neuron: { rate: 0.001, enable: 0.01, disable: 0.001 }, // Add "max" to limit the number of neurons.
                 bias: { rate: 0.1, change: [0, 2] }, // Add min/max to limit the value biases.
                 connection: { rate: 0.01, enable: 0.01, disable: 0.001 },
@@ -23,32 +23,56 @@ class Ecosystem {
         this.edc = config.edc || config.excessDisjointCoefficient || 1 // Excess and disjoint coefficient.
         this.wdc = config.wdc || config.weightDifferenceCoefficient || 0.5 // Weight difference coefficient.
         this.compatibility = config.compatibility || 3 // Compatibility threshold.
+        this.compatibilityStep = config.compatibilityStep || 0.25
+        this.minCompatibility = config.minCompatibility || 0.5
+        this.targetSpecies = config.targetSpecies || Math.max(2, Math.round(Math.sqrt(this.size)))
+        this.survivalRate = config.survivalRate || 0.4
+        this.elitism = config.elitism || 0.05
     }
 
     best(population = this.population) {
-        return [...population].sort((a, b) => b.fitness - a.fitness).shift()
+        return [...population].sort((a, b) => (b.fitness || 0) - (a.fitness || 0)).shift()
     }
 
     averageFitness(population = this.population) {
+        if (!population.length) return 0
         return population.reduce((value, individual) => (value += individual.fitness), 0) / population.length
     }
 
+    connectionKey(connection = {}) {
+        const from = connection.from?.id ?? connection["<"]
+        const to = connection.to?.id ?? connection[">"]
+        return `${from}-${to}`
+    }
+
+    distance(N1 = {}, N2 = {}) {
+        const map1 = new Map((N1.connections || []).map(connection => [this.connectionKey(connection), connection]))
+        const map2 = new Map((N2.connections || []).map(connection => [this.connectionKey(connection), connection]))
+        const keys = new Set([...map1.keys(), ...map2.keys()])
+        let matching = 0
+        let weightDifference = 0
+        let unmatching = 0
+
+        keys.forEach(key => {
+            const gene1 = map1.get(key)
+            const gene2 = map2.get(key)
+            if (gene1 && gene2) {
+                matching++
+                weightDifference += Math.abs(gene1.weight - gene2.weight)
+            } else unmatching++
+        })
+
+        const awd = matching === 0 ? 1 : weightDifference / matching
+        const normalizer = Math.max(keys.size, 1)
+        return (this.edc * unmatching) / normalizer + this.wdc * awd
+    }
+
     compare(N1 = {}, N2 = {}) {
-        let matching = 0 // The number of matching connection genes.
-        let weightDifference = 0 // Total weight difference.
-        N1.connections.forEach(C1 =>
-            N2.connections.forEach(C2 => {
-                if (C1.from.id === C2.from.id && C1.from.activator === C2.from.activator && C1.to.id === C2.to.id && C1.to.activator === C2.to.activator) {
-                    matching++
-                    weightDifference += Math.abs(C1.weight - C2.weight)
-                }
-            })
-        )
-        const unmatching = N1.connections.length + N2.connections.length - 2 * matching // The number of unmatching connections.
-        const awd = matching === 0 ? 100 : weightDifference / matching // Average weight difference. Return 100 if matching === 0 to avoid division by 0 error.
-        const normalizer = Math.max(N1.connections.length + N2.connections.length, 1)
-        const compatibility = (this.edc * unmatching) / normalizer + this.wdc * awd // Compatibility formula.
-        return this.compatibility > compatibility
+        return this.distance(N1, N2) <= this.compatibility
+    }
+
+    sortSpecies(species = []) {
+        return [...species].sort((a, b) => (b.fitness || 0) - (a.fitness || 0))
     }
 
     speciate(population = this.population) {
@@ -57,36 +81,48 @@ class Ecosystem {
             let speciated = false
             for (const species of this.species)
                 if (species.length) {
-                    // Choose a random representative sample from the species.
-                    // const sample = species[Math.floor(Math.random() * species.length)]
-                    const sample = random(species)
-                    const compare = this.compare(individual, sample)
-                    if (compare) {
+                    const sample = species.representative || species[0]
+                    if (this.compare(individual, sample)) {
                         species.push(individual)
                         speciated = true
                         break
                     }
                 }
             // If no species found, create a new species for this individual.
-            if (!speciated) this.species.push([individual])
+            if (!speciated) {
+                const next = [individual]
+                next.representative = individual
+                this.species.push(next)
+            }
         })
-        if (this.species.length > population.length / 10) {
-            this.compatibility++
-            this.speciate(population)
-        } else return this.species
+        this.species = this.species.map(species => {
+            const ranked = this.sortSpecies(species)
+            ranked.representative = ranked[0]
+            ranked.adjustedFitness = ranked.reduce((value, individual) => value + Math.max(individual.fitness || 0, 0) / ranked.length, 0)
+            return ranked
+        })
+        if (population.length > 1) {
+            if (this.species.length > this.targetSpecies * 1.25) this.compatibility += this.compatibilityStep
+            else if (this.species.length < this.targetSpecies * 0.75) this.compatibility = Math.max(this.minCompatibility, this.compatibility - this.compatibilityStep)
+        }
+        return this.species
     }
 
     select(species = []) {
-        species.sort((a, b) => b.fitness - a.fitness)
-        const seed = Math.random()
-        if (seed < 0.25) return species[0]
-        if (seed < 0.375 && species.length > 1) return species[1]
-        if (seed < 0.5 && species.length > 2) return species[2]
-        const threshold = Math.random() * species.reduce((value, individual) => (value += individual.fitness), 0)
+        if (!species.length) return undefined
+        const ranked = this.sortSpecies(species)
+        const seed = randomFloat()
+        if (seed < 0.25) return ranked[0]
+        if (seed < 0.375 && ranked.length > 1) return ranked[1]
+        if (seed < 0.5 && ranked.length > 2) return ranked[2]
+        const threshold = randomFloat(
+            0,
+            ranked.reduce((value, individual) => (value += Math.max(individual.fitness || 0, 0) + 1e-6), 0)
+        )
         let sum = 0
         return (
-            species.find(individual => {
-                sum += individual.fitness
+            ranked.find(individual => {
+                sum += Math.max(individual.fitness || 0, 0) + 1e-6
                 if (sum > threshold) return true
             }) || random(species)
         )
@@ -148,85 +184,151 @@ class Ecosystem {
         return new Network(child)
     }
 
+    clone(network) {
+        return new Network(network.encode())
+    }
+
+    layerIndexes(network) {
+        const indexes = {}
+        network.layers.forEach((layer, index) => layer.n.forEach(neuron => (indexes[neuron.id] = index)))
+        return indexes
+    }
+
+    addRandomLayer(network, fromIndex, toIndex) {
+        if (toIndex - fromIndex > 1) return random(fromIndex + 1, toIndex - 1)
+        network.layer({ index: toIndex })
+        return toIndex
+    }
+
     mutate(network) {
         // Add new random layer.
-        if (Math.random() < this.mutation.layer && !network.layers.filter(l => !l.n.length).length) network.layer({ index: random(1, network.layers.length - 2) })
+        if (chance(this.mutation.layer) && !network.layers.filter(l => !l.n.length).length) network.layer({ index: random(1, network.layers.length - 2) })
 
         // Add new random neuron.
-        if (Math.random() < this.mutation.neuron.rate && (isNaN(this.mutation.neuron.max) || network.neurons.length < this.mutation.neuron.max)) network.neuron({ layer: random(1, network.layers.length - 2), activator: random(Object.keys(activators)) })
+        if (chance(this.mutation.neuron.rate) && (isNaN(this.mutation.neuron.max) || network.neurons.length < this.mutation.neuron.max)) {
+            const index = Math.max(1, Math.min(network.layers.length - 2, random(1, Math.max(1, network.layers.length - 2))))
+            network.neuron({ layer: index, activator: random(Object.keys(activators)) })
+        }
 
         // Add new random connection.
-        if (Math.random() < this.mutation.connection.rate) {
-            const from = random(network.neurons)
-            const to = random(network.neurons)
-            if (!network.connections.some(c => c.from.id === from.id && c.to.id === to.id)) network.connect({ from, to })
+        if (chance(this.mutation.connection.rate)) {
+            const indexes = this.layerIndexes(network)
+            const candidates = []
+            network.neurons.forEach(from =>
+                network.neurons.forEach(to => {
+                    if (from.id === to.id) return
+                    if (indexes[from.id] >= indexes[to.id]) return
+                    if (network.connections.some(c => c.from.id === from.id && c.to.id === to.id)) return
+                    candidates.push({ from, to })
+                })
+            )
+            if (candidates.length) network.connect(random(candidates))
         }
 
         // Add new random node between a connection.
-        if (Math.random() < this.mutation.node && network.connections.length && (typeof this.mutation.neuron.max === "undefined" || network.neurons.length < this.mutation.neuron.max)) {
+        if (chance(this.mutation.node) && network.connections.length && (typeof this.mutation.neuron.max === "undefined" || network.neurons.length < this.mutation.neuron.max)) {
             const connection = random(network.connections.filter(connection => connection.state))
-            const neuron = network.neuron({ layer: random(1, network.layers.length - 2), activator: random(Object.keys(activators)) })
-            connection.state = false
-            network.connect({ from: connection.from, to: neuron.id })
-            network.connect({ from: neuron.id, to: connection.to })
+            if (connection) {
+                const indexes = this.layerIndexes(network)
+                const layer = this.addRandomLayer(network, indexes[connection.from.id], indexes[connection.to.id])
+                const neuron = network.neuron({ layer, activator: random(Object.keys(activators)), bias: 0 })
+                connection.state = false
+                network.connect({ from: connection.from, to: neuron, weight: 1 })
+                network.connect({ from: neuron, to: connection.to, weight: connection.weight })
+            }
         }
 
         network.neurons.forEach(neuron => {
             // Change random neuron biases.
-            if (Math.random() < this.mutation.bias.rate) {
-                neuron.bias += neuron.bias * random(...this.mutation.bias.change) * random([-1, 1])
+            if (chance(this.mutation.bias.rate)) {
+                const scale = Math.abs(neuron.bias) || 1
+                neuron.bias += scale * randomFloat(...this.mutation.bias.change) * random([-1, 1])
                 if (!isNaN(this.mutation.bias.min)) neuron.bias = Math.max(neuron.bias, this.mutation.bias.min)
                 if (!isNaN(this.mutation.bias.max)) neuron.bias = Math.min(neuron.bias, this.mutation.bias.max)
             }
             // Enable random neuron.
-            if (!neuron.state && Math.random() < this.mutation.neuron.enable && ![...network.layers[0].n, ...network.layers[network.layers.length - 1].n].some(n => n.id === neuron.id)) neuron.state = true
+            if (!neuron.state && chance(this.mutation.neuron.enable) && ![...network.layers[0].n, ...network.layers[network.layers.length - 1].n].some(n => n.id === neuron.id)) neuron.state = true
             // Disable random neuron.
-            if (neuron.state && Math.random() < this.mutation.neuron.disable && ![...network.layers[0].n, ...network.layers[network.layers.length - 1].n].some(n => n.id === neuron.id)) neuron.state = false
+            if (neuron.state && chance(this.mutation.neuron.disable) && ![...network.layers[0].n, ...network.layers[network.layers.length - 1].n].some(n => n.id === neuron.id)) neuron.state = false
         })
 
         network.connections.forEach(connection => {
             // Change random connection weight.
-            if (Math.random() < this.mutation.weight.rate) {
-                connection.weight += connection.weight * random(...this.mutation.weight.change) * random([-1, 1])
+            if (chance(this.mutation.weight.rate)) {
+                const scale = Math.abs(connection.weight) || 1
+                connection.weight += scale * randomFloat(...this.mutation.weight.change) * random([-1, 1])
                 if (typeof this.mutation.weight.min !== "undefined") connection.weight = Math.max(connection.weight, this.mutation.weight.min)
                 if (typeof this.mutation.weight.max !== "undefined") connection.weight = Math.min(connection.weight, this.mutation.weight.max)
             }
             // Change random connection timestep.
-            if (Math.random() < this.mutation.timestep.rate) {
-                connection.timestep += connection.timestep * random(...this.mutation.timestep.change) * random([-1, 1])
+            if (chance(this.mutation.timestep.rate)) {
+                const scale = Math.abs(connection.timestep) || 1
+                connection.timestep += scale * randomFloat(...this.mutation.timestep.change) * random([-1, 1])
                 if (typeof this.mutation.timestep.min !== "undefined") connection.timestep = Math.max(connection.timestep, this.mutation.timestep.min)
                 if (typeof this.mutation.timestep.max !== "undefined") connection.timestep = Math.min(connection.timestep, this.mutation.timestep.max)
             }
             // Enable random connections.
-            if (!connection.state && Math.random() < this.mutation.connection.enable) connection.state = true
+            if (!connection.state && chance(this.mutation.connection.enable)) connection.state = true
             // Disable random connections.
-            if (connection.state && Math.random() < this.mutation.connection.disable) connection.state = false
+            if (connection.state && chance(this.mutation.connection.disable)) connection.state = false
         })
     }
 
     produce() {
+        if (!this.population.length) return this.population
+        const speciesGroups = this.species.length ? this.species : this.speciate()
         const generation = []
-        // Calculate average fitness of the entire population.
-        const populationFitness = this.averageFitness()
-        const sizes = this.species.map(species => Math.round((this.averageFitness(species) / populationFitness) * species.length))
-        const total = sizes.reduce((value, size) => (value += size), 0)
-        const target = total / this.species.length
-        this.species.forEach((species, index) => {
-            const size = sizes[index] + ((target - sizes[index]) * 0.1 * this.size) / total
-            for (let i = 0; i < size; i++) {
-                // Select parents and crossover.
-                const father = this.select(species)
-                const mother = this.select(species)
-                const child = this.crossover(father, mother)
+        const weighted = speciesGroups.map(species => ({
+            species,
+            score: Math.max(species.adjustedFitness || 0, 1e-6)
+        }))
+        const total = weighted.reduce((value, item) => value + item.score, 0) || 1
+        const quotas = weighted.map(item => ({ ...item, exact: (item.score / total) * this.size }))
+        const counts = quotas.map(item => Math.floor(item.exact))
+        let remainder = this.size - counts.reduce((value, count) => value + count, 0)
+
+        quotas
+            .map((item, index) => ({ index, remainder: item.exact - counts[index] }))
+            .sort((a, b) => b.remainder - a.remainder)
+            .forEach(item => {
+                if (remainder <= 0) return
+                counts[item.index]++
+                remainder--
+            })
+
+        quotas.forEach((item, index) => {
+            const species = item.species
+            const count = counts[index]
+            if (!count || !species.length) return
+
+            const survivors = this.sortSpecies(species).slice(0, Math.max(1, Math.ceil(species.length * this.survivalRate)))
+            const eliteCount = Math.min(count, Math.max(1, Math.round(count * this.elitism)))
+
+            for (let i = 0; i < eliteCount; i++) generation.push(this.clone(survivors[i % survivors.length]))
+
+            for (let i = eliteCount; i < count; i++) {
+                const father = this.select(survivors)
+                const mother = survivors.length > 1 ? this.select(survivors) : father
+                const child = father && mother ? this.crossover(father, mother) : this.clone(survivors[0])
                 this.mutate(child)
                 generation.push(child)
             }
         })
-        this.population = generation
-        while (this.size < this.population.length) this.population.splice(Math.floor(Math.random() * this.population.length), 1)
+
+        while (generation.length < this.size && weighted.length) {
+            const species = this.select(random(weighted).species)
+            if (!species) break
+            const child = this.clone(species)
+            this.mutate(child)
+            generation.push(child)
+        }
+
+        this.population = generation.slice(0, this.size)
+        return this.population
     }
 
     seed(config = {}) {
+        this.population = []
         for (let i = 0; i < this.size; i++) this.population.push(new Network(config))
         return this.population
     }

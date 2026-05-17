@@ -7,7 +7,7 @@ export const relu = (x = 0) => {
 }
 
 export const tanh = (x = 0) => {
-    return 1 - Math.pow(Math.tanh(x), 2)
+    return 1 - Math.pow(x, 2)
 }
 
 export default { sigmoid, relu, tanh }

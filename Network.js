@@ -110,11 +110,11 @@ class Network {
         this.l = [] // Layers.
         this.n = [] // Neurons.
         this.c = [] // Connections.
-        this.t = config.t || config.type || "ff" // Network type, "ff" for feedforward, "neat" for NEAT.
+        this.t = config.t ?? config.type ?? "ff" // Network type, "ff" for feedforward, "neat" for NEAT.
         this.a = typeof config.a !== "undefined" ? config.a : typeof config.activator !== "undefined" ? config.activator : "sigmoid" // Activator (sigmoid/relu/tanh), used as default activator if no neuron/layer activator exists.
-        this.r = config.r || config.rate || 0.01 // Learning rate, used in FF network.
-        this.m = config.m || config.momentum || 0.01 // Momentum, used in FF network.
-        this.i = config.i || config.iterations || 0 // Iterations, used in FF network.
+        this.r = config.r ?? config.rate ?? 0.01 // Learning rate, used in FF network.
+        this.m = config.m ?? config.momentum ?? 0.01 // Momentum, used in FF network.
+        this.i = config.i ?? config.iterations ?? 0 // Iterations, used in FF network.
     }
 
     layer(config = {}) {

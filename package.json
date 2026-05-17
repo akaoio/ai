@@ -9,6 +9,8 @@
         "test": "node tests/test.js",
         "testff": "node tests/FF.js",
         "testneat": "node tests/NEAT.js",
+        "build:wasm": "mkdir -p wasm && zig build-exe wasm/kernels.zig -target wasm32-freestanding -fno-entry --export-memory -O ReleaseSmall -rdynamic -femit-bin=wasm/kernels.wasm",
+        "benchmark": "npm run build:wasm --silent && node benchmarks/run.js",
         "format": "npx prettier --write ."
     },
     "repository": {
