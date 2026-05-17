@@ -41,6 +41,14 @@ For wiring NEAT populations directly into poker self-play, see:
 - `poker/neat.js`
 - `poker/example.js`
 
+For long-running evolution with automatic generation checkpoints on disk, run:
+
+```bash
+node poker/evolve.js 25
+```
+
+By default this writes generation JSON checkpoints under `poker/checkpoints/`.
+
 ## Canonical NEAT notes
 
 The current NEAT path now uses:

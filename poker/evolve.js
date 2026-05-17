@@ -2,6 +2,8 @@ import Ecosystem from "../Ecosystem.js"
 import PokerPlatform from "./Platform.js"
 import { runNeatGeneration } from "./neat.js"
 
+const generations = Number(process.argv[2] || 25)
+
 const ecosystem = new Ecosystem({
     mutation: {
         bias: { change: [0, 0.5], max: 5, min: -5, rate: 0.05 },
@@ -11,29 +13,34 @@ const ecosystem = new Ecosystem({
         weight: { change: [0, 0.5], max: 5, min: -5, rate: 0.15 }
     },
     recurrent: true,
-    size: 32,
-    targetSpecies: 6
+    size: 100,
+    targetSpecies: 10
 })
 
 ecosystem.seed({ layers: [15, 0, 5], recurrentSteps: 2, type: "neat" })
 
 const platform = new PokerPlatform({
     bigBlind: 10,
-    handsPerTable: 5,
+    handsPerTable: 20,
     replacement: true,
     smallBlind: 5,
     startingStack: 500,
     tableSize: 8
 })
 
-for (let generation = 1; generation <= 10; generation++) {
+for (let generation = 1; generation <= generations; generation++) {
     const result = await runNeatGeneration(ecosystem, {
         checkpoint: { generation },
-        generation: { hands: 5, tableSize: 8, tables: 16 },
+        generation: { hands: 20, tableSize: 8, tables: 100 },
         platform
     })
-    console.log(`generation ${generation}: ${result.checkpoint.file}`)
-    console.table(result.standings.slice(0, 5))
+    const best = ecosystem.best()
+    console.log({
+        bestFitness: best?.fitness ?? 0,
+        bestScore: best?.score ?? 0,
+        checkpoint: result.checkpoint.file,
+        generation
+    })
     ecosystem.speciate()
     ecosystem.produce()
 }

@@ -1,4 +1,7 @@
 import assert from "node:assert/strict"
+import { mkdtemp, readFile, rm } from "node:fs/promises"
+import os from "node:os"
+import path from "node:path"
 import test from "node:test"
 
 import Ecosystem from "../Ecosystem.js"
@@ -7,6 +10,7 @@ import PokerPlatform from "../poker/Platform.js"
 import PokerTable from "../poker/Table.js"
 import { ScriptedAgent } from "../poker/agents.js"
 import { compareRanks, evaluateFive, evaluateSeven } from "../poker/evaluator.js"
+import { runNeatGeneration } from "../poker/neat.js"
 import { setSeed } from "../Utils.js"
 import { XOR } from "./exams.js"
 
@@ -164,6 +168,32 @@ test("poker platform aggregates chip deltas across generated tables", () => {
     assert.equal(result.standings.length, 2)
     assert.equal(result.standings.reduce((value, item) => value + item.chipsWon, 0), 0)
     assert.ok(result.standings[0].chipsWon !== result.standings[1].chipsWon)
+})
+
+test("poker NEAT flow autosaves checkpoints to disk", async () => {
+    const directory = await mkdtemp(path.join(os.tmpdir(), "ai-poker-checkpoints-"))
+    try {
+        const ecosystem = new Ecosystem({ recurrent: true, size: 2 })
+        ecosystem.seed({ layers: [15, 0, 5], recurrentSteps: 2, type: "neat" })
+        const platform = new PokerPlatform({ bigBlind: 2, handsPerTable: 1, replacement: false, smallBlind: 1, startingStack: 20, tableSize: 2 })
+        const result = await runNeatGeneration(ecosystem, {
+            checkpoint: { directory, generation: 3 },
+            generation: {
+                deckFactory: () => ["Kd", "Ah", "Kc", "Ad", "2s", "7d", "9h", "3c", "4d"],
+                hands: 1,
+                tableSize: 2,
+                tables: 1
+            },
+            platform
+        })
+        assert.ok(result.checkpoint.file.endsWith("generation-000003.json"))
+        const saved = JSON.parse(await readFile(result.checkpoint.file, "utf8"))
+        assert.equal(saved.generation, 3)
+        assert.equal(saved.population.length, 2)
+        assert.equal(saved.standings.length, 2)
+    } finally {
+        await rm(directory, { force: true, recursive: true })
+    }
 })
 
 test("ecosystem speciation and reproduction keep a stable deterministic population", () => {
