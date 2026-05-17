@@ -1,5 +1,6 @@
 import Ecosystem from "../Ecosystem.js"
 import PokerPlatform from "./Platform.js"
+import { OBSERVATION_SIZE } from "./agents.js"
 import { runNeatGeneration } from "./neat.js"
 
 const generations = Number(process.argv[2] || 25)
@@ -17,7 +18,7 @@ const ecosystem = new Ecosystem({
     targetSpecies: 10
 })
 
-ecosystem.seed({ layers: [15, 0, 5], recurrentSteps: 2, type: "neat" })
+ecosystem.seed({ layers: [OBSERVATION_SIZE, 0, 5], recurrentSteps: 2, type: "neat" })
 
 const platform = new PokerPlatform({
     bigBlind: 10,

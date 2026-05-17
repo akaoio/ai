@@ -98,26 +98,38 @@ class PokerTable {
     observation(player, seat, state) {
         const legalActions = this.legalActions(player, state)
         const toCall = Math.max(0, state.currentBet - player.committedRound)
+        const active = this.contenders()
+        const effectiveStack = Math.max(0, ...active.filter(item => item.id !== player.id).map(item => Math.min(player.stack, item.stack)), player.stack)
+        const relativePosition = (seat - this.button + this.players.length) % this.players.length
+        const playersBehind = this.players.filter(item => !item.folded && item.stack > 0 && ((item.seat - seat + this.players.length) % this.players.length) > 0).length
         return {
-            activePlayers: this.contenders().length,
+            activePlayers: active.length,
             bigBlind: this.bigBlind,
             button: this.button,
             community: [...this.community],
             currentBet: state.currentBet,
+            effectiveStack,
             handNumber: this.handNumber,
             hole: [...player.hole],
             legalActions,
+            lastAggressorPosition: state.lastAggressorSeat ?? -1,
             maxRaiseTo: legalActions.find(action => action.type === "raise")?.max || player.committedRound + player.stack,
             minRaiseTo: legalActions.find(action => action.type === "raise")?.min || state.currentBet,
             playerCount: this.players.length,
             playerId: player.id,
             position: seat,
             pot: this.pot,
+            playersBehind,
+            playersToAct: Math.max(0, [...state.awaiting].filter(id => id !== player.id).length),
+            relativePosition,
             stage: state.stage,
+            stageActions: state.actionCount,
             stageIndex: STAGES.indexOf(state.stage),
+            stageRaises: state.raiseCount,
             stack: player.stack,
             startingStack: this.startingStack,
-            toCall
+            toCall,
+            totalRaises: this.history.filter(item => item.action === "raise").length
         }
     }
 
@@ -172,12 +184,16 @@ class PokerTable {
 
     playBettingRound(stage, startSeat) {
         const state = {
+            actionCount: 0,
             currentBet: Math.max(...this.players.map(player => player.committedRound)),
+            lastAggressorSeat: -1,
             minRaise: this.bigBlind,
+            raiseCount: 0,
             stage
         }
         const order = this.bettingOrder(startSeat)
         let awaiting = new Set(order.filter(player => !player.allIn && !player.folded).map(player => player.id))
+        state.awaiting = awaiting
 
         while (awaiting.size && this.contenders().length > 1) {
             let progressed = false
@@ -191,10 +207,15 @@ class PokerTable {
                 const response = player.agent?.act?.(observation)
                 const action = this.normalizeAction(response, player, state)
                 const result = this.applyAction(player, action, state)
+                state.actionCount++
                 this.history.push({ action: result.type, player: player.id, stage })
                 progressed = true
-                if (result.type === "raise") awaiting = new Set(order.filter(candidate => !candidate.folded && !candidate.allIn && candidate.id !== player.id).map(candidate => candidate.id))
-                else awaiting.delete(player.id)
+                if (result.type === "raise") {
+                    state.raiseCount++
+                    state.lastAggressorSeat = player.seat
+                    awaiting = new Set(order.filter(candidate => !candidate.folded && !candidate.allIn && candidate.id !== player.id).map(candidate => candidate.id))
+                } else awaiting.delete(player.id)
+                state.awaiting = awaiting
                 if (this.contenders().length <= 1) {
                     awaiting.clear()
                     break

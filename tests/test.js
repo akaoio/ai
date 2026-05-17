@@ -8,7 +8,7 @@ import Ecosystem from "../Ecosystem.js"
 import Network from "../Network.js"
 import PokerPlatform from "../poker/Platform.js"
 import PokerTable from "../poker/Table.js"
-import { ScriptedAgent } from "../poker/agents.js"
+import { OBSERVATION_SIZE, ScriptedAgent, encodeObservation } from "../poker/agents.js"
 import { compareRanks, evaluateFive, evaluateSeven } from "../poker/evaluator.js"
 import { runNeatGeneration } from "../poker/neat.js"
 import { setSeed } from "../Utils.js"
@@ -170,11 +170,38 @@ test("poker platform aggregates chip deltas across generated tables", () => {
     assert.ok(result.standings[0].chipsWon !== result.standings[1].chipsWon)
 })
 
+test("poker observation encoding exposes richer normalized features", () => {
+    const table = new PokerTable({
+        bigBlind: 2,
+        players: [{ agent: new ScriptedAgent([{ type: "call" }]), id: "hero", stack: 20 }, { agent: new ScriptedAgent([{ type: "raise", amount: 6 }]), id: "villain", stack: 20 }],
+        smallBlind: 1,
+        startingStack: 20
+    })
+    table.playHand({ deck: ["Kd", "Ah", "Kc", "Ad", "2s", "7d", "9h", "3c", "4d"] })
+    const hero = table.players.find(player => player.id === "hero")
+    const context = {
+        ...table.observation(hero, hero.seat, {
+            actionCount: 3,
+            awaiting: new Set([hero.id]),
+            currentBet: 4,
+            lastAggressorSeat: 1,
+            raiseCount: 1,
+            stage: "flop"
+        }),
+        community: ["2s", "7d", "9h"]
+    }
+    const vector = encodeObservation(context)
+    assert.equal(vector.length, OBSERVATION_SIZE)
+    assert.ok(vector.every(value => Number.isFinite(value)))
+    assert.equal(vector[18], 0)
+    assert.ok(vector[26] >= 0)
+})
+
 test("poker NEAT flow autosaves checkpoints to disk", async () => {
     const directory = await mkdtemp(path.join(os.tmpdir(), "ai-poker-checkpoints-"))
     try {
         const ecosystem = new Ecosystem({ recurrent: true, size: 2 })
-        ecosystem.seed({ layers: [15, 0, 5], recurrentSteps: 2, type: "neat" })
+        ecosystem.seed({ layers: [OBSERVATION_SIZE, 0, 5], recurrentSteps: 2, type: "neat" })
         const platform = new PokerPlatform({ bigBlind: 2, handsPerTable: 1, replacement: false, smallBlind: 1, startingStack: 20, tableSize: 2 })
         const result = await runNeatGeneration(ecosystem, {
             checkpoint: { directory, generation: 3 },

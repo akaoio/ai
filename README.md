@@ -36,6 +36,15 @@ The new `poker/` folder is one example domain package built on top of the generi
 - chip-delta tournament aggregation
 - agent adapters, including a simple NEAT adapter
 
+The default NEAT poker encoder now uses a richer **43-feature** observation vector with:
+
+- stage, seat, relative position, players behind/to act
+- stack, effective stack, SPR, pot odds, to-call, raise bounds
+- hole-card structure
+- board texture and draw pressure
+- current made-hand strength proxy
+- last aggressor and short action-history counters
+
 For wiring NEAT populations directly into poker self-play, see:
 
 - `poker/neat.js`
