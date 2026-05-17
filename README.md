@@ -8,6 +8,7 @@ Generic AI experimentation platform in JavaScript with optional Zig/WebAssembly 
 - `Ecosystem`: canonical feedforward NEAT evolution loop with innovation tracking
 - `Benchmark`: generic timing helpers
 - `Wasm`: JS + Zig/WASM kernel bridge for dense math workloads
+- `poker/`: Texas Hold'em style self-play simulation platform for evolving agents
 
 ## Scripts
 
@@ -27,6 +28,18 @@ The repository stays domain-agnostic on purpose. Nothing in the runtime is poker
 - evolutionary search
 - self-play evaluators
 - future task-specific agents built on top of the core primitives
+
+The new `poker/` folder is one example domain package built on top of the generic primitives. It provides:
+
+- multi-player table simulation
+- showdown evaluation
+- chip-delta tournament aggregation
+- agent adapters, including a simple NEAT adapter
+
+For wiring NEAT populations directly into poker self-play, see:
+
+- `poker/neat.js`
+- `poker/example.js`
 
 ## Canonical NEAT notes
 

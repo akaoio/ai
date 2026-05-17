@@ -3,6 +3,10 @@ import test from "node:test"
 
 import Ecosystem from "../Ecosystem.js"
 import Network from "../Network.js"
+import PokerPlatform from "../poker/Platform.js"
+import PokerTable from "../poker/Table.js"
+import { ScriptedAgent } from "../poker/agents.js"
+import { compareRanks, evaluateFive, evaluateSeven } from "../poker/evaluator.js"
 import { setSeed } from "../Utils.js"
 import { XOR } from "./exams.js"
 
@@ -121,6 +125,45 @@ test("recurrent ecosystem mutations can add backward or self connections", () =>
     ecosystem.connectGene(network, network.layers[2].n[0], network.layers[1].n[0], { timestep: 1, weight: 0.5 })
     assert.ok(network.connections.some(connection => connection.from.id === network.layers[2].n[0].id && connection.to.id === network.layers[1].n[0].id))
     assert.ok(network.connections.some(connection => connection.timestep >= 1 && connection.from.position >= connection.to.position))
+})
+
+test("poker evaluator ranks stronger hands correctly", () => {
+    const straightFlush = evaluateFive(["As", "Ks", "Qs", "Js", "Ts"])
+    const quads = evaluateFive(["Ah", "Ad", "Ac", "As", "2d"])
+    const fullHouse = evaluateSeven(["Ah", "Ad", "Ac", "Ks", "Kd", "2c", "3d"])
+    assert.ok(compareRanks(straightFlush, quads) > 0)
+    assert.equal(fullHouse.label, "full-house")
+})
+
+test("poker table resolves a deterministic showdown", () => {
+    const table = new PokerTable({
+        bigBlind: 2,
+        players: [{ agent: new ScriptedAgent([{ type: "call" }, { type: "check" }, { type: "check" }, { type: "check" }]), id: "hero", stack: 20 }, { agent: new ScriptedAgent([{ type: "check" }, { type: "check" }, { type: "check" }, { type: "check" }]), id: "villain", stack: 20 }],
+        smallBlind: 1,
+        startingStack: 20
+    })
+    table.playHand({ deck: ["Kd", "Ah", "Kc", "Ad", "2s", "7d", "9h", "3c", "4d"] })
+    const hero = table.players.find(player => player.id === "hero")
+    const villain = table.players.find(player => player.id === "villain")
+    assert.equal(hero.stack + villain.stack, 40)
+    assert.ok(hero.stack > villain.stack)
+})
+
+test("poker platform aggregates chip deltas across generated tables", () => {
+    const platform = new PokerPlatform({ bigBlind: 2, handsPerTable: 1, replacement: false, smallBlind: 1, startingStack: 20, tableSize: 2 })
+    const entrants = [
+        { agent: new ScriptedAgent([{ type: "call" }, { type: "check" }, { type: "check" }, { type: "check" }]), id: "a" },
+        { agent: new ScriptedAgent([{ type: "check" }, { type: "check" }, { type: "check" }, { type: "check" }]), id: "b" }
+    ]
+    const result = platform.runGeneration(entrants, {
+        deckFactory: () => ["Kd", "Ah", "Kc", "Ad", "2s", "7d", "9h", "3c", "4d"],
+        hands: 1,
+        tableSize: 2,
+        tables: 1
+    })
+    assert.equal(result.standings.length, 2)
+    assert.equal(result.standings.reduce((value, item) => value + item.chipsWon, 0), 0)
+    assert.ok(result.standings[0].chipsWon !== result.standings[1].chipsWon)
 })
 
 test("ecosystem speciation and reproduction keep a stable deterministic population", () => {
