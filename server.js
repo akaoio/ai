@@ -11,7 +11,7 @@ let gameLoopPromise = null
 
 async function startNewGame() {
     const { InteractiveGame, HumanAgent } = await import("./poker/InteractiveGame.js")
-    const { HeuristicAgent, createNeatAgent } = await import("./poker/agents.js")
+    const { createNeatAgent } = await import("./poker/agents.js")
     const { loadLatestCheckpoint } = await import("./poker/neat.js")
     const Ecosystem = (await import("./Ecosystem.js")).default
 
@@ -20,18 +20,22 @@ async function startNewGame() {
     const resumed = await loadLatestCheckpoint("poker/checkpoints/bitnet", ecosystem)
     const bestNetwork = ecosystem.best() || ecosystem.population[0]
 
+    // Load top 4 genomes from latest checkpoint — all opponents are evolved AI
+    const sortedPop = [...ecosystem.population].sort((a, b) => (b.fitness ?? -Infinity) - (a.fitness ?? -Infinity))
+    const gen = resumed?.generation ?? 0
+
     const humanAgent = new HumanAgent()
     const players = [
         { id: "human", agent: humanAgent },
-        { id: resumed ? `AI-gen${resumed.generation}` : "AI-best", agent: createNeatAgent(bestNetwork) },
-        { id: "heuristic-tight", agent: new HeuristicAgent({ id: "heuristic-tight", style: "tight" }) },
-        { id: "heuristic-balanced", agent: new HeuristicAgent({ id: "heuristic-balanced", style: "balanced" }) },
-        { id: "heuristic-aggressive", agent: new HeuristicAgent({ id: "heuristic-aggressive", style: "aggressive" }) },
+        ...sortedPop.slice(0, 4).map((net, i) => ({
+            id: `AI-gen${gen}-#${i + 1}`,
+            agent: createNeatAgent(net)
+        }))
     ]
 
     gameSession = new InteractiveGame(players, { bigBlind: 10, smallBlind: 5, startingStack: 500 })
     gameSession._humanAgent = humanAgent
-    gameSession._info = resumed ? `Loaded gen ${resumed.generation} best genome` : "No checkpoint — using fresh network"
+    gameSession._info = resumed ? `Loaded gen ${gen} — top 4 evolved AI` : "No checkpoint — using fresh networks"
 
     // Game loop: plays one hand at a time, pauses between hands
     // Call gameSession._startNextHand() to trigger the next hand
