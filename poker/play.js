@@ -132,6 +132,17 @@ function render(state) {
             ).join("")
         }
         document.getElementById("result-body").innerHTML = body
+        const btnNext = document.getElementById("btn-next")
+        if (state.gameOver) {
+            btnNext.textContent = "New Game"
+            btnNext.onclick = () => {
+                document.getElementById("result-overlay").classList.remove("visible")
+                newGame()
+            }
+        } else {
+            btnNext.textContent = "Next Hand ▶"
+            btnNext.onclick = nextHand
+        }
         overlay.classList.add("visible")
     } else {
         overlay.classList.remove("visible")
@@ -182,9 +193,17 @@ document.getElementById("btn-raise").addEventListener("click", () => {
     sendAction({ type: "raise", amount })
 })
 
-document.getElementById("btn-next").addEventListener("click", () => {
+async function nextHand() {
     document.getElementById("result-overlay").classList.remove("visible")
-})
+    try {
+        const res = await fetch(`${API}/api/play/next-hand`, { method: "POST" })
+        const state = await res.json()
+        if (state.error) document.getElementById("info-bar").textContent = state.error
+        else render(state)
+    } catch (e) { console.error(e) }
+}
+
+document.getElementById("btn-next").addEventListener("click", nextHand)
 
 // ── New Game ──────────────────────────────────────────────────────────────────
 async function newGame() {

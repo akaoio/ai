@@ -33,11 +33,22 @@ async function startNewGame() {
     gameSession._humanAgent = humanAgent
     gameSession._info = resumed ? `Loaded gen ${resumed.generation} best genome` : "No checkpoint — using fresh network"
 
-    // Run game loop in background (plays hands continuously)
+    // Game loop: plays one hand at a time, pauses between hands
+    // Call gameSession._startNextHand() to trigger the next hand
+    gameSession._nextHandTrigger = null
+    gameSession._startNextHand = function () {
+        if (this._nextHandTrigger) {
+            const fn = this._nextHandTrigger
+            this._nextHandTrigger = null
+            fn()
+        }
+    }
     gameLoopPromise = (async () => {
+        await gameSession.playHand()
         while (true) {
+            if (gameSession.activeSeats().length < 2) { gameSession._gameOver = true; break }
+            await new Promise(resolve => { gameSession._nextHandTrigger = resolve })
             await gameSession.playHand()
-            if (gameSession.activeSeats().length < 2) break
         }
     })()
 
@@ -111,6 +122,22 @@ http.createServer(function (request, response) {
         } else {
             response.end(JSON.stringify(gameSession.getState()))
         }
+        return
+    }
+    if (parsed.pathname === "/api/play/next-hand") {
+        ;(async () => {
+            try {
+                if (!gameSession) throw new Error("No game session")
+                if (gameSession._gameOver) throw new Error("Game over — all players busted. Start a new game.")
+                gameSession._startNextHand()
+                await new Promise(r => setTimeout(r, 80))
+                response.writeHead(200, { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" })
+                response.end(JSON.stringify(gameSession.getState()))
+            } catch (e) {
+                response.writeHead(400, { "Content-Type": "application/json" })
+                response.end(JSON.stringify({ error: e.message }))
+            }
+        })()
         return
     }
     if (parsed.pathname === "/api/play/action") {

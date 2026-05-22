@@ -366,7 +366,8 @@ export class InteractiveGame {
             })),
             pot: this.pot,
             smallBlind: this.smallBlind,
-            stage: this.stage
+            stage: this.stage,
+            gameOver: !!this._gameOver
         }
     }
 }
