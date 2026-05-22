@@ -130,9 +130,13 @@ async function updateNetwork() {
         if (!res.ok) return
         const { network, generation, fitness } = await res.json()
         if (!network) return
-        // Decode encoded JSON into a live Network object that Visualization.present() expects
+        // Decode encoded JSON into a live Network object
         const liveNet = new Network(network)
-        viz.present(liveNet)
+        // Visualization.present() accesses data.n[innovationID] (sparse by #),
+        // but liveNet.n is a dense 0-based array — remap to sparse array indexed by #
+        const nByHash = []
+        liveNet.n.forEach(n => { nByHash[n["#"]] = n })
+        viz.present({ ...liveNet, n: nByHash })
         $("network-info").textContent = `Gen ${generation} | fitness: ${fitness?.toFixed(2)} BB/100 | neurons: ${liveNet.n.length} | connections: ${liveNet.c.length}`
     } catch (e) {
         $("network-info").textContent = `Error: ${e.message}`
