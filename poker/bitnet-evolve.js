@@ -83,6 +83,8 @@ for (let generation = startGeneration; generation <= endGeneration; generation++
         overallBest.fitness = best.fitness
     }
 
+    ecosystem.speciate()
+
     const avgFitness = ecosystem.averageFitness()
     const speciesCount = ecosystem.species?.length ?? 0
     const totalNeurons = ecosystem.population.reduce((s, n) => s + n.neurons.length, 0)
@@ -106,7 +108,6 @@ for (let generation = startGeneration; generation <= endGeneration; generation++
         console.log(`  Total elapsed: ${totalElapsed}min`)
     }
 
-    ecosystem.speciate()
     ecosystem.produce()
 }
 
