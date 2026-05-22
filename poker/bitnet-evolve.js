@@ -46,8 +46,8 @@ const baseline = [
 ]
 
 console.log(`BitNet NEAT Poker — ${generations} generations | pop=${ecosystem.size}`)
-console.log(`Seed network: ${OBSERVATION_SIZE}→128→64→6 | neurons=${initialNeurons} | connections=${initialConnections}`)
-console.log(`Platform: ${platform.tableSize} seats × ${platform.handsPerTable} hands | BB=${BIG_BLIND}`)
+console.log(`Seed network: ${OBSERVATION_SIZE}→16→6 | neurons=${initialNeurons} | connections=${initialConnections}`)
+console.log(`Platform: ${platform.tableSize} seats × 50 hands/table | BB=${BIG_BLIND}`)
 console.log("─".repeat(70))
 
 const t0 = Date.now()

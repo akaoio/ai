@@ -3,6 +3,7 @@ import path from "path"
 
 import PokerPlatform from "./Platform.js"
 import { createNeatAgent } from "./agents.js"
+import { random } from "../Utils.js"
 
 export const entrantsFromPopulation = (population = [], config = {}) =>
     population.map((network, index) => ({
@@ -71,7 +72,12 @@ export const runNeatGeneration = async (ecosystem, config = {}) => {
     const baselineIds = new Set(baselineEntrants.map(e => e.id))
 
     const allEntrants = [...neatEntrants, ...baselineEntrants]
-    const result = platform.runGeneration(allEntrants, config.generation)
+    const result = platform.runGeneration(allEntrants, {
+        ...config.generation,
+        // Guarantee at least 1 baseline per table so genomes are always benchmarked
+        // against fixed-skill opponents — not just each other ("king of fools" problem)
+        guaranteed: baselineEntrants.length ? [random(baselineEntrants)] : []
+    })
 
     // Only assign fitness to NEAT genomes, not baseline agents
     const neatStandings = result.standings.filter(s => !baselineIds.has(s.id))

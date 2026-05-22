@@ -16,9 +16,10 @@ class PokerPlatform {
         return { agent, id: entry.id }
     }
 
-    sampleEntrants(entries = [], tableSize = this.tableSize) {
+    sampleEntrants(entries = [], tableSize = this.tableSize, guaranteed = []) {
+        // guaranteed entries always appear at every table (e.g. baseline agents for honest benchmarking)
         const pool = [...entries]
-        const sampled = []
+        const sampled = [...guaranteed]
         while (sampled.length < tableSize && pool.length) {
             const entrant = random(pool)
             sampled.push(entrant)
@@ -45,7 +46,8 @@ class PokerPlatform {
         const results = []
 
         for (let index = 0; index < tables; index++) {
-            const tableEntries = this.sampleEntrants(entries, config.tableSize || this.tableSize)
+            const guaranteed = config.guaranteed || []
+            const tableEntries = this.sampleEntrants(entries, config.tableSize || this.tableSize, guaranteed)
             const result = this.playTable(tableEntries, config)
             results.push(result)
             result.standings.forEach(player => {
