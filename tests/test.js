@@ -8,9 +8,9 @@ import Ecosystem from "../Ecosystem.js"
 import Network from "../Network.js"
 import PokerPlatform from "../poker/Platform.js"
 import PokerTable from "../poker/Table.js"
-import { OBSERVATION_SIZE, ScriptedAgent, encodeObservation } from "../poker/agents.js"
+import { OBSERVATION_SIZE, ScriptedAgent, encodeObservation, preflopHandBucket } from "../poker/agents.js"
 import { compareRanks, evaluateFive, evaluateSeven } from "../poker/evaluator.js"
-import { runNeatGeneration } from "../poker/neat.js"
+import { runNeatGeneration, assignFitnessFromStandings, serializeCheckpoint } from "../poker/neat.js"
 import { setSeed } from "../Utils.js"
 import { XOR } from "./exams.js"
 
@@ -333,4 +333,114 @@ test("bitnet NEAT crossover offspring inherit bn flag and ternary weights", () =
     const child = ecosystem.crossover(a, b)
     assert.equal(child.bitnet, true)
     child.connections.forEach(connection => assert.ok([-1, 0, 1].includes(connection.weight), `crossover weight ${connection.weight} not ternary`))
+})
+
+test("preflopHandBucket classifies hands into correct strength buckets", () => {
+    // Premium pairs → bucket 7
+    assert.equal(preflopHandBucket(["Ah", "As"]), 7)
+    assert.equal(preflopHandBucket(["Kh", "Ks"]), 7)
+    assert.equal(preflopHandBucket(["Qh", "Qs"]), 7)
+    // Strong broadway suited → bucket 6
+    assert.equal(preflopHandBucket(["Ah", "Kh"]), 6)
+    assert.equal(preflopHandBucket(["As", "Qs"]), 6)
+    // Strong broadway offsuit → bucket 5
+    assert.equal(preflopHandBucket(["Ah", "Kd"]), 5)
+    assert.equal(preflopHandBucket(["Ac", "Qd"]), 5)
+    // Medium pairs → bucket 4
+    assert.equal(preflopHandBucket(["Jh", "Js"]), 4)
+    assert.equal(preflopHandBucket(["7h", "7d"]), 4)
+    // Suited connectors → bucket 3
+    assert.equal(preflopHandBucket(["Jh", "Th"]), 3)
+    assert.equal(preflopHandBucket(["9s", "8s"]), 3)
+    // Small pairs → bucket 2
+    assert.equal(preflopHandBucket(["6h", "6s"]), 2)
+    assert.equal(preflopHandBucket(["2c", "2d"]), 2)
+    // Speculative suited → bucket 1
+    assert.equal(preflopHandBucket(["Ah", "5h"]), 1)
+    assert.equal(preflopHandBucket(["Ks", "9s"]), 1)
+    // Trash (offsuit non-premium) → bucket 0
+    assert.equal(preflopHandBucket(["7h", "2d"]), 0)
+    assert.equal(preflopHandBucket(["9c", "4d"]), 0)
+    // Empty input → 0
+    assert.equal(preflopHandBucket([]), 0)
+})
+
+test("opponent stats are tracked across hands and exposed in observation context", () => {
+    const table = new PokerTable({
+        bigBlind: 2,
+        players: [
+            { agent: new ScriptedAgent([{ type: "raise", amount: 6 }, { type: "check" }, { type: "check" }, { type: "check" }]), id: "hero", stack: 100 },
+            { agent: new ScriptedAgent([{ type: "call" }, { type: "check" }, { type: "check" }, { type: "check" }]), id: "villain", stack: 100 }
+        ],
+        smallBlind: 1,
+        startingStack: 100
+    })
+    table.playHand({ deck: ["Kd", "Ah", "Kc", "Ad", "2s", "7d", "9h", "3c", "4d"] })
+
+    // After one hand, hero (raiser) should have pfr=1, vpip=1 and villain (caller) vpip=1
+    const heroStats = table.opponentStats.get("hero")
+    const villainStats = table.opponentStats.get("villain")
+    assert.ok(heroStats)
+    assert.ok(villainStats)
+    assert.equal(heroStats.pfr, 1)
+    assert.equal(heroStats.vpip, 1)
+    assert.equal(villainStats.vpip, 1)
+    assert.equal(villainStats.pfr, 0)})
+
+test("opponent modeling features appear in observation and observation vector", () => {
+    const table = new PokerTable({
+        bigBlind: 2,
+        players: [
+            { agent: new ScriptedAgent([{ type: "call" }, { type: "check" }, { type: "check" }, { type: "check" }]), id: "hero", stack: 40 },
+            { agent: new ScriptedAgent([{ type: "raise", amount: 6 }, { type: "check" }, { type: "check" }, { type: "check" }]), id: "villain", stack: 40 }
+        ],
+        smallBlind: 1,
+        startingStack: 40
+    })
+    table.playHand({ deck: ["Kd", "Ah", "Kc", "Ad", "2s", "7d", "9h", "3c", "4d"] })
+
+    const hero = table.players.find(p => p.id === "hero")
+    const ctx = table.observation(hero, hero.seat, {
+        actionCount: 1, awaiting: new Set([hero.id]), currentBet: 2, lastAggressorSeat: 1, raiseCount: 0, stage: "flop"
+    })
+    assert.ok("avgOpponentVPIP" in ctx)
+    assert.ok("avgOpponentPFR" in ctx)
+    assert.ok("avgOpponentAggression" in ctx)
+    assert.ok(ctx.avgOpponentVPIP >= 0 && ctx.avgOpponentVPIP <= 1)
+    assert.ok(ctx.avgOpponentPFR >= 0 && ctx.avgOpponentPFR <= 1)
+    assert.ok(ctx.avgOpponentAggression >= 0 && ctx.avgOpponentAggression <= 1)
+
+    const vector = encodeObservation({ ...ctx, community: ["2s", "7d", "9h"] })
+    assert.equal(vector.length, OBSERVATION_SIZE)
+    assert.ok(vector.every(v => Number.isFinite(v)))
+})
+
+test("linear fitness discounting increments generationCount and applies temporal discount", () => {
+    const standings = [{ id: "g0", chipsWon: 100, hands: 100, appearances: 1, maxHands: 100 }]
+
+    // Fresh genome: no _previousFitness, _generationCount increments to 1 on first call
+    const genome = { _previousFitness: undefined, _generationCount: undefined }
+    assignFitnessFromStandings([genome], standings, { bigBlind: 10, fitnessSmoothing: 0.55, idFor: (_, i) => `g${i}` })
+    assert.equal(genome._generationCount, 1)
+    const firstFitness = genome.fitness
+
+    // Second generation: _generationCount increments to 2 before discount is applied
+    // discountFactor = 2 / (2 + 1) = 2/3
+    const standings2 = [{ id: "g0", chipsWon: 0, hands: 100, appearances: 1, maxHands: 100 }]
+    assignFitnessFromStandings([genome], standings2, { bigBlind: 10, fitnessSmoothing: 0.55, idFor: (_, i) => `g${i}` })
+    assert.equal(genome._generationCount, 2)
+    // fitness = 0.55 * 0 + 0.45 * (2/3) * firstFitness
+    const expected = 0.55 * 0 + 0.45 * (2 / 3) * firstFitness
+    assert.ok(Math.abs(genome.fitness - expected) < 1e-6)
+})
+
+test("generationCount is serialized and restored in NEAT checkpoints", () => {
+    const ecosystem = new Ecosystem({ recurrent: true, size: 2 })
+    ecosystem.seed({ layers: [OBSERVATION_SIZE, 0, 5], recurrentSteps: 1, type: "neat" })
+    ecosystem.population[0]._generationCount = 5
+    ecosystem.population[1]._generationCount = 3
+
+    const payload = serializeCheckpoint(ecosystem, { standings: [] }, { generation: 1 })
+    assert.equal(payload.population[0].generationCount, 5)
+    assert.equal(payload.population[1].generationCount, 3)
 })

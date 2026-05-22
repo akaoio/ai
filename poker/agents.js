@@ -74,7 +74,31 @@ const preflopStrength = (hole = []) => {
     return Math.min(0.98, highBonus * 0.5 + kicker + suitBonus + connectBonus)
 }
 
-export const OBSERVATION_SIZE = 45
+export const OBSERVATION_SIZE = 49
+
+// Bayesian priors for opponent stats (matches the priors in Table.js)
+const DEFAULT_OPPONENT_VPIP = 0.3
+const DEFAULT_OPPONENT_PFR = 0.1
+const DEFAULT_OPPONENT_AGGRESSION = 0.3
+
+// Classify preflop hole cards into one of 8 hand-strength buckets (0 = weakest, 7 = strongest).
+// Encoding as a single normalized feature reduces input noise and helps ternary weights generalize
+// across the 1326 possible preflop combinations.
+export const preflopHandBucket = (hole = []) => {
+    if (hole.length < 2 || !hole[0] || !hole[1]) return 0
+    const [r1, r2] = hole.map(rank).sort((a, b) => b - a) // r1 >= r2
+    const paired = r1 === r2
+    const suited = !!(hole[0][1] && hole[1][1] && hole[0][1] === hole[1][1])
+    const gap = r1 - r2
+    if (paired && r1 >= 12) return 7          // Premium pairs: AA, KK, QQ
+    if (suited && r1 === 14 && r2 >= 12) return 6  // Strong broadway suited: AKs, AQs
+    if (!suited && r1 === 14 && r2 >= 12) return 5 // Strong broadway offsuit: AKo, AQo
+    if (paired && r1 >= 7) return 4           // Medium pairs: JJ-77
+    if (suited && gap <= 1 && r1 >= 8) return 3    // Suited connectors: JTs, T9s, 98s…
+    if (paired) return 2                      // Small pairs: 66-22
+    if (suited) return 1                      // Speculative suited: A5s-A2s, KQs, etc.
+    return 0                                  // Trash: offsuit, unpaired, non-premium
+}
 
 export class RandomAgent {
     constructor(config = {}) {
@@ -285,7 +309,13 @@ export const encodeObservation = context => {
         context.maxRaiseTo / Math.max(context.startingStack, 1),
         potCommitment,
         betCommitment,
-        ...ranks
+        ...ranks,
+        // Improvement 2: preflop hand bucket (card clustering) — reduces 1326-combination noise
+        preflopHandBucket(context.hole) / 7,
+        // Improvement 1: opponent modeling features (VPIP / PFR / aggression factor)
+        Math.min(context.avgOpponentVPIP ?? DEFAULT_OPPONENT_VPIP, 1),
+        Math.min(context.avgOpponentPFR ?? DEFAULT_OPPONENT_PFR, 1),
+        Math.min(context.avgOpponentAggression ?? DEFAULT_OPPONENT_AGGRESSION, 1)
     ]
 }
 
@@ -317,4 +347,4 @@ export const createNeatAgent = (network, config = {}) => ({
     }
 })
 
-export default { RandomAgent, ScriptedAgent, HeuristicAgent, TightCallerAgent, createNeatAgent, encodeObservation, actionFromOutputs, currentHandStrength }
+export default { RandomAgent, ScriptedAgent, HeuristicAgent, TightCallerAgent, createNeatAgent, encodeObservation, actionFromOutputs, currentHandStrength, preflopHandBucket }

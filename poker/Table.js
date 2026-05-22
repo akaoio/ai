@@ -3,6 +3,11 @@ import { compareRanks, evaluateSeven } from "./evaluator.js"
 
 const STAGES = ["preflop", "flop", "turn", "river"]
 
+// Bayesian priors for opponent stats when insufficient data is available
+const PRIOR_VPIP = 0.3
+const PRIOR_PFR = 0.1
+const PRIOR_AGGRESSION = 0.3
+
 class PokerTable {
     constructor(config = {}) {
         this.smallBlind = config.smallBlind || 5
@@ -30,6 +35,10 @@ class PokerTable {
         this.community = []
         this.pot = 0
         this.history = []
+        // Per-player running stats for opponent modeling (VPIP/PFR/aggression)
+        this.opponentStats = new Map()
+        // Tracks which players have already had their preflop VPIP counted this hand
+        this._handPreflopActed = new Set()
     }
 
     activeSeats() {
@@ -51,6 +60,7 @@ class PokerTable {
     resetHandState() {
         this.community = []
         this.pot = 0
+        this._handPreflopActed = new Set()
         this.players.forEach(player => {
             player.allIn = false
             player.committedHand = 0
@@ -58,6 +68,11 @@ class PokerTable {
             player.folded = player.stack <= 0
             player.hole = []
             player.startStack = player.stack
+            // Initialize opponent stats entry if this is the first time seeing this player
+            if (!this.opponentStats.has(player.id)) {
+                this.opponentStats.set(player.id, { handsDealt: 0, vpip: 0, pfr: 0, raises: 0, calls: 0 })
+            }
+            if (player.stack > 0) this.opponentStats.get(player.id).handsDealt++
         })
     }
 
@@ -105,8 +120,30 @@ class PokerTable {
         const effectiveStack = Math.max(0, ...active.filter(item => item.id !== player.id).map(item => Math.min(player.stack, item.stack)), player.stack)
         const relativePosition = (seat - this.button + this.players.length) % this.players.length
         const playersBehind = this.players.filter(item => !item.folded && item.stack > 0 && ((item.seat - seat + this.players.length) % this.players.length) > 0).length
+
+        // Aggregate opponent modeling stats from active opponents
+        const opponentStatsList = this.players
+            .filter(p => p.id !== player.id && !p.folded && p.stack > 0)
+            .map(p => this.opponentStats.get(p.id) || { handsDealt: 0, vpip: 0, pfr: 0, raises: 0, calls: 0 })
+        const numOpp = opponentStatsList.length
+        const avgOpponentVPIP = numOpp
+            ? opponentStatsList.reduce((sum, s) => sum + (s.handsDealt > 0 ? s.vpip / s.handsDealt : PRIOR_VPIP), 0) / numOpp
+            : PRIOR_VPIP
+        const avgOpponentPFR = numOpp
+            ? opponentStatsList.reduce((sum, s) => sum + (s.handsDealt > 0 ? s.pfr / s.handsDealt : PRIOR_PFR), 0) / numOpp
+            : PRIOR_PFR
+        const avgOpponentAggression = numOpp
+            ? opponentStatsList.reduce((sum, s) => {
+                const total = s.raises + s.calls
+                return sum + (total > 0 ? s.raises / total : PRIOR_AGGRESSION)
+            }, 0) / numOpp
+            : PRIOR_AGGRESSION
+
         return {
             activePlayers: active.length,
+            avgOpponentVPIP,
+            avgOpponentPFR,
+            avgOpponentAggression,
             bigBlind: this.bigBlind,
             button: this.button,
             community: [...this.community],
@@ -219,6 +256,20 @@ class PokerTable {
                 const result = this.applyAction(player, action, state)
                 state.actionCount++
                 this.history.push({ action: result.type, player: player.id, stage })
+                // Update opponent modeling stats
+                const stat = this.opponentStats.get(player.id)
+                if (stat) {
+                    if (result.type === "raise") stat.raises++
+                    else if (result.type === "call") stat.calls++
+                    // VPIP: first voluntary put-in (call or raise) preflop per hand
+                    if (stage === "preflop" && !this._handPreflopActed.has(player.id)) {
+                        if (result.type === "call" || result.type === "raise") {
+                            stat.vpip++
+                            this._handPreflopActed.add(player.id)
+                        }
+                        if (result.type === "raise") stat.pfr++
+                    }
+                }
                 progressed = true
                 if (result.type === "raise") {
                     state.raiseCount++
