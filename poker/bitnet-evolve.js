@@ -70,15 +70,20 @@ for (let generation = startGeneration; generation <= endGeneration; generation++
             { id: "heuristic-balanced", createAgent: () => new HeuristicAgent({ id: "heuristic-balanced", style: "balanced" }) },
             { id: "heuristic-aggressive", createAgent: () => new HeuristicAgent({ id: "heuristic-aggressive", style: "aggressive" }) }
         ],
-        // Penalise excessive all-in raises: subtract from BB/100 for every percent above
-        // the 15% threshold. At 50% all-in rate the penalty is ~210 BB/100 — enough to
-        // strongly discourage blind shoving while allowing legitimate all-ins.
+        // Fitness = BB/100 - allIn penalty - bust penalty
+        // allInRate measured over handsActive (hands with chips), not dead hands
+        // bustPenalty: each bust = lose full stack (50BB) → extra -50 BB/100 per bust/hand
         fitness: (standing) => {
             if (!standing.hands) return 0
             const bb100 = (standing.chipsWon / standing.hands) / BIG_BLIND * 100
+            // Use total hands (not just active) to avoid amplifying allIn rate when agent busts early
             const allInRate = (standing.allInRaises || 0) / standing.hands
-            const penalty = Math.max(0, allInRate - 0.15) * BIG_BLIND * 60
-            return bb100 - penalty
+            const bustRate = (standing.busts || 0) / standing.hands
+            // Linear penalty from 0% — no free zone. Each % of large-bet frequency = 20 BB/100 penalty
+            const allInPenalty = allInRate * BIG_BLIND * 200
+            // Each bust = extra -50 BB/100 on top of chip loss already in bb100
+            const bustPenalty = bustRate * (platform.startingStack / BIG_BLIND) * 100
+            return bb100 - allInPenalty - bustPenalty
         },
         checkpoint: { directory: CHECKPOINT_DIR, generation },
         generation: { hands: HANDS_PER_TABLE, tableSize: 8, tables: 100 },
@@ -116,8 +121,11 @@ for (let generation = startGeneration; generation <= endGeneration; generation++
         const avgAllInRate = neatStandings.length
             ? (neatStandings.reduce((sum, s) => sum + (s.allInRaises || 0) / Math.max(s.hands, 1), 0) / neatStandings.length * 100).toFixed(1)
             : "?"
+        const avgBustRate = neatStandings.length
+            ? (neatStandings.reduce((sum, s) => sum + (s.busts || 0) / Math.max(s.hands, 1), 0) / neatStandings.length * 100).toFixed(2)
+            : "?"
         console.log(`  Top: ${topStandings.map(s => `${s.id}(${s.chipsWon > 0 ? "+" : ""}${s.chipsWon})`).join(", ")}`)
-        console.log(`  All-in rate avg: ${avgAllInRate}% | Total elapsed: ${totalElapsed}min`)
+        console.log(`  All-in rate avg: ${avgAllInRate}% | Bust rate avg: ${avgBustRate}% | Total elapsed: ${totalElapsed}min`)
     }
 
     ecosystem.produce()

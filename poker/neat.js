@@ -119,7 +119,7 @@ export const runNeatGeneration = async (ecosystem, config = {}) => {
     const baselineIds = new Set(baselineEntrants.map(e => e.id))
 
     const allEntrants = [...neatEntrants, ...baselineEntrants]
-    const result = platform.runGeneration(allEntrants, {
+    const result = await platform.runGeneration(allEntrants, {
         ...config.generation,
         // Guarantee at least 1 baseline per table so genomes are always benchmarked
         // against fixed-skill opponents — not just each other ("king of fools" problem)

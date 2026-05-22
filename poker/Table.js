@@ -12,10 +12,12 @@ class PokerTable {
         this.players = (config.players || []).map((player, seat) => ({
             agent: player.agent,
             allInRaises: 0,
+            busts: 0,
             chipsWon: 0,
             committedHand: 0,
             committedRound: 0,
             folded: false,
+            handsActive: 0,
             hole: [],
             id: player.id || `player-${seat}`,
             seat,
@@ -166,6 +168,8 @@ class PokerTable {
         }
         if (action.type === "check") return { type: "check" }
         if (action.type === "call") {
+            // Calling off ≥50% of remaining stack is reckless (same risk as a big raise)
+            if (player.stack > 0 && toCall >= player.stack * 0.5) player.allInRaises++
             this.wager(player, toCall)
             return { type: "call" }
         }
@@ -177,7 +181,7 @@ class PokerTable {
             this.wager(player, amountAdded)
             state.currentBet = player.committedRound
             state.minRaise = Math.max(this.bigBlind, state.currentBet - previous)
-            if (player.allIn || amountAdded > stackBefore * 0.75) player.allInRaises++
+            if (player.allIn || amountAdded > stackBefore * 0.5) player.allInRaises++
             return { type: "raise" }
         }
         return { type: "check" }
@@ -282,7 +286,9 @@ class PokerTable {
     standings() {
         return this.players.map(player => ({
             allInRaises: player.allInRaises,
+            busts: player.busts,
             chipsWon: player.stack - player.tableStartStack,
+            handsActive: player.handsActive,
             id: player.id,
             stack: player.stack
         }))
@@ -318,6 +324,14 @@ class PokerTable {
 
         if (this.contenders().length === 1) this.contenders()[0].stack += this.pot
         else this.settleShowdown()
+
+        // Bankroll tracking: count active hands and busts
+        this.players.forEach(player => {
+            if (player.startStack > 0) {
+                player.handsActive++
+                if (player.stack === 0) player.busts++
+            }
+        })
 
         const result = {
             community: [...this.community],
