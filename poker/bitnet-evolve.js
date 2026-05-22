@@ -64,6 +64,13 @@ for (let generation = startGeneration; generation <= endGeneration; generation++
     let result
     result = await runNeatGeneration(ecosystem, {
         bigBlind: BIG_BLIND,
+        // EMA smoothing: blend 55% new measurement + 45% previous fitness each generation.
+        // Poker evaluation has very high variance (~50-100 BB/100 std dev per 1000 hands).
+        // Smoothing lets elites accumulate statistical evidence across generations so the
+        // "best" metric trends upward instead of thrashing from luck alone.
+        // Only genomes that survived a prior generation carry _previousFitness; fresh
+        // children (newly born this generation) always receive their raw score.
+        fitnessSmoothing: 0.55,
         baseline: [
             { id: "tight-caller-1", createAgent: () => new TightCallerAgent({ id: "tight-caller-1" }) },
             { id: "tight-caller-2", createAgent: () => new TightCallerAgent({ id: "tight-caller-2" }) },

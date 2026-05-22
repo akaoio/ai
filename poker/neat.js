@@ -14,17 +14,28 @@ export const entrantsFromPopulation = (population = [], config = {}) =>
 
 export const assignFitnessFromStandings = (population = [], standings = [], config = {}) => {
     const values = new Map(standings.map(item => [item.id, item]))
+    // alpha=1.0 → raw fitness each generation (no smoothing, default/backward-compat)
+    // alpha<1.0 → EMA: blend new measurement with previous to reduce poker's high evaluation noise.
+    //   Only genomes that survived a previous generation (elites/parents) carry _previousFitness;
+    //   fresh children (no _previousFitness) always receive their raw score.
+    const alpha = config.fitnessSmoothing ?? 1.0
     return population.map((network, index) => {
         const id = config.idFor ? config.idFor(network, index) : `genome-${index}`
         const standing = values.get(id) || { appearances: 0, chipsWon: 0, hands: 0 }
+        let rawFitness
         if (config.fitness) {
-            network.fitness = config.fitness(standing, network, index)
+            rawFitness = config.fitness(standing, network, index)
         } else if (standing.hands && config.bigBlind) {
             // BB/100 hands: industry-standard poker performance metric
-            network.fitness = (standing.chipsWon / standing.hands) / config.bigBlind * 100
+            rawFitness = (standing.chipsWon / standing.hands) / config.bigBlind * 100
         } else {
-            network.fitness = standing.appearances ? standing.chipsWon / standing.appearances : 0
+            rawFitness = standing.appearances ? standing.chipsWon / standing.appearances : 0
         }
+        const prevFitness = network._previousFitness
+        network.fitness = (alpha < 1.0 && prevFitness != null)
+            ? alpha * rawFitness + (1 - alpha) * prevFitness
+            : rawFitness
+        network._previousFitness = network.fitness
         network.score = standing.chipsWon
         return network
     })
@@ -41,6 +52,7 @@ export const serializeCheckpoint = (ecosystem, result, config = {}) => ({
         fitness: network.fitness ?? 0,
         id: config.idFor ? config.idFor(network, index) : `genome-${index}`,
         network: network.encode(),
+        previousFitness: network._previousFitness ?? null,
         score: network.score ?? 0
     })),
     species: (ecosystem.species || []).map(species => ({
@@ -95,6 +107,7 @@ export const loadLatestCheckpoint = async (directory, ecosystem) => {
         ecosystem.population = data.population.map(item => {
             const net = new Network(item.network)
             net.fitness = item.fitness ?? 0
+            net._previousFitness = item.previousFitness ?? undefined
             net.score = item.score ?? 0
             return ecosystem.ensureCanonical(net)
         })
