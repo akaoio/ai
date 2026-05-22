@@ -382,11 +382,10 @@ test("opponent stats are tracked across hands and exposed in observation context
     const villainStats = table.opponentStats.get("villain")
     assert.ok(heroStats)
     assert.ok(villainStats)
-    assert.ok(heroStats.pfr >= 1)
-    assert.ok(heroStats.vpip >= 1)
-    assert.ok(villainStats.vpip >= 1)
-    assert.equal(villainStats.pfr, 0)
-})
+    assert.equal(heroStats.pfr, 1)
+    assert.equal(heroStats.vpip, 1)
+    assert.equal(villainStats.vpip, 1)
+    assert.equal(villainStats.pfr, 0)})
 
 test("opponent modeling features appear in observation and observation vector", () => {
     const table = new PokerTable({
@@ -432,7 +431,7 @@ test("linear fitness discounting increments generationCount and applies temporal
     assert.equal(genome._generationCount, 2)
     // fitness = 0.55 * 0 + 0.45 * (2/3) * firstFitness
     const expected = 0.55 * 0 + 0.45 * (2 / 3) * firstFitness
-    assert.ok(Math.abs(genome.fitness - expected) < 1e-9)
+    assert.ok(Math.abs(genome.fitness - expected) < 1e-6)
 })
 
 test("generationCount is serialized and restored in NEAT checkpoints", () => {

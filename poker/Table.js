@@ -3,6 +3,11 @@ import { compareRanks, evaluateSeven } from "./evaluator.js"
 
 const STAGES = ["preflop", "flop", "turn", "river"]
 
+// Bayesian priors for opponent stats when insufficient data is available
+const PRIOR_VPIP = 0.3
+const PRIOR_PFR = 0.1
+const PRIOR_AGGRESSION = 0.3
+
 class PokerTable {
     constructor(config = {}) {
         this.smallBlind = config.smallBlind || 5
@@ -122,17 +127,17 @@ class PokerTable {
             .map(p => this.opponentStats.get(p.id) || { handsDealt: 0, vpip: 0, pfr: 0, raises: 0, calls: 0 })
         const numOpp = opponentStatsList.length
         const avgOpponentVPIP = numOpp
-            ? opponentStatsList.reduce((sum, s) => sum + (s.handsDealt > 0 ? s.vpip / s.handsDealt : 0.3), 0) / numOpp
-            : 0.3
+            ? opponentStatsList.reduce((sum, s) => sum + (s.handsDealt > 0 ? s.vpip / s.handsDealt : PRIOR_VPIP), 0) / numOpp
+            : PRIOR_VPIP
         const avgOpponentPFR = numOpp
-            ? opponentStatsList.reduce((sum, s) => sum + (s.handsDealt > 0 ? s.pfr / s.handsDealt : 0.1), 0) / numOpp
-            : 0.1
+            ? opponentStatsList.reduce((sum, s) => sum + (s.handsDealt > 0 ? s.pfr / s.handsDealt : PRIOR_PFR), 0) / numOpp
+            : PRIOR_PFR
         const avgOpponentAggression = numOpp
             ? opponentStatsList.reduce((sum, s) => {
                 const total = s.raises + s.calls
-                return sum + (total > 0 ? s.raises / total : 0.3)
+                return sum + (total > 0 ? s.raises / total : PRIOR_AGGRESSION)
             }, 0) / numOpp
-            : 0.3
+            : PRIOR_AGGRESSION
 
         return {
             activePlayers: active.length,

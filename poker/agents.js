@@ -76,6 +76,11 @@ const preflopStrength = (hole = []) => {
 
 export const OBSERVATION_SIZE = 49
 
+// Bayesian priors for opponent stats (matches the priors in Table.js)
+const DEFAULT_OPPONENT_VPIP = 0.3
+const DEFAULT_OPPONENT_PFR = 0.1
+const DEFAULT_OPPONENT_AGGRESSION = 0.3
+
 // Classify preflop hole cards into one of 8 hand-strength buckets (0 = weakest, 7 = strongest).
 // Encoding as a single normalized feature reduces input noise and helps ternary weights generalize
 // across the 1326 possible preflop combinations.
@@ -308,9 +313,9 @@ export const encodeObservation = context => {
         // Improvement 2: preflop hand bucket (card clustering) — reduces 1326-combination noise
         preflopHandBucket(context.hole) / 7,
         // Improvement 1: opponent modeling features (VPIP / PFR / aggression factor)
-        Math.min(context.avgOpponentVPIP ?? 0.3, 1),
-        Math.min(context.avgOpponentPFR ?? 0.1, 1),
-        Math.min(context.avgOpponentAggression ?? 0.3, 1)
+        Math.min(context.avgOpponentVPIP ?? DEFAULT_OPPONENT_VPIP, 1),
+        Math.min(context.avgOpponentPFR ?? DEFAULT_OPPONENT_PFR, 1),
+        Math.min(context.avgOpponentAggression ?? DEFAULT_OPPONENT_AGGRESSION, 1)
     ]
 }
 
