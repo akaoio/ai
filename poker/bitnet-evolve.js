@@ -36,9 +36,11 @@ if (resumed) {
     console.log(`Fresh start: ${OBSERVATION_SIZE}→16→6 | neurons=${ecosystem.population[0].neurons.length} | connections=${ecosystem.population[0].connections.length}`)
 }
 
+const HANDS_PER_TABLE = 100
+
 const platform = new PokerPlatform({
     bigBlind: BIG_BLIND,
-    handsPerTable: 20,
+    handsPerTable: HANDS_PER_TABLE,
     replacement: true,
     smallBlind: BIG_BLIND / 2,
     startingStack: 500,
@@ -55,7 +57,7 @@ const baseline = [
 const endGeneration = startGeneration + generations - 1
 const rangeLabel = isFinite(endGeneration) ? `gen ${startGeneration}→${endGeneration}` : `gen ${startGeneration}→∞`
 console.log(`BitNet NEAT Poker — ${rangeLabel} | pop=${ecosystem.size}`)
-console.log(`Platform: ${platform.tableSize} seats × 50 hands/table | BB=${BIG_BLIND}`)
+console.log(`Platform: ${platform.tableSize} seats × ${HANDS_PER_TABLE} hands/table | BB=${BIG_BLIND}`)
 console.log("─".repeat(70))
 
 const t0 = Date.now()
@@ -69,7 +71,7 @@ for (let generation = startGeneration; generation <= endGeneration; generation++
         baseline,
         bigBlind: BIG_BLIND,
         checkpoint: { directory: CHECKPOINT_DIR, generation },
-        generation: { hands: 50, tableSize: 8, tables: 100 },
+        generation: { hands: HANDS_PER_TABLE, tableSize: 8, tables: 100 },
         platform
     })
 
