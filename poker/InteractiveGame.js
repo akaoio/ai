@@ -371,7 +371,7 @@ export class InteractiveGame {
                 committedHand: p.committedHand,
                 dealer: p.seat === this.button,
                 folded: p.folded,
-                hole: p.isHuman ? p.hole : (this.stage === "showdown" && this.handResult?.showdown ? p.hole : ["??", "??"]),
+                hole: p.isHuman ? p.hole : (this.handResult?.revealed?.find(r => r.id === p.id)?.hole ?? ["??", "??"]),
                 id: p.id,
                 isHuman: p.isHuman,
                 lastAction: p.lastAction || null,

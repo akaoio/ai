@@ -264,15 +264,13 @@ export const actionFromOutputs = (outputs = [], context = {}) => {
         { type: "raise", score: outputs[2] ?? -Infinity, amount: potBet(Math.round(context.pot / 3)) },
         { type: "raise", score: outputs[3] ?? -Infinity, amount: potBet(Math.round(context.pot * 2 / 3)) },
         { type: "raise", score: outputs[4] ?? -Infinity, amount: potBet(context.pot) },
-        { type: "all-in", score: outputs[5] ?? -Infinity }
+        // all-in only available when raise is legal (has enough chips to raise)
+        ...(legal.has("raise") ? [{ type: "raise", score: outputs[5] ?? -Infinity, amount: context.maxRaiseTo }] : [])
     ]
     return choices
-        .filter(choice => legal.has(choice.type) || choice.type === "all-in")
-        .sort((a, b) => b.score - a.score)
-        .map(choice => {
-            if (choice.type === "all-in" && legal.has("raise")) return { type: "raise", amount: context.maxRaiseTo }
-            return choice
-        })[0] || { type: legal.has("check") ? "check" : "call" }
+        .filter(choice => legal.has(choice.type))
+        .sort((a, b) => b.score - a.score)[0]
+        || { type: legal.has("check") ? "check" : "call" }
 }
 
 export const createNeatAgent = (network, config = {}) => ({
