@@ -56,32 +56,51 @@ class PokerPlatform {
     }
 
     async runGeneration(entries = [], config = {}) {
-        const numTables = config.tables || Math.max(1, Math.ceil(entries.length / (config.tableSize || this.tableSize)))
-        const standings = new Map(entries.map(entry => [entry.id, { allInRaises: 0, busts: 0, chipsWon: 0, hands: 0, handsActive: 0, id: entry.id, appearances: 0 }]))
+        const numTables = config.tables || 100
+        const tableSize = config.tableSize || this.tableSize
+        const handsPerTable = config.hands || this.handsPerTable
+        const startingStack = config.startingStack || this.startingStack
+        const numRounds = config.rounds || 10
+        const tablesPerRound = Math.ceil(numTables / numRounds)
 
-        // Pre-generate all table seat assignments
-        const guaranteed = config.guaranteed || []
-        const tableAssignments = Array.from({ length: numTables }, () =>
-            this.sampleEntrants(entries, config.tableSize || this.tableSize, guaranteed)
-        )
+        // maxHands: total hands an agent can play if it never busts (used for fitness normalization)
+        // Agents that bust early accumulate 0 chips for skipped rounds — natural punishment
+        const maxHands = numRounds * handsPerTable
 
         const neatEntries = entries.filter(e => e.network)
+        const serializedNetworks = neatEntries.map(e => ({ id: e.id, encoded: e.network.encode() }))
+        const tableConfig = {
+            bigBlind: config.bigBlind || this.bigBlind,
+            button: 0,
+            hands: handsPerTable,
+            smallBlind: config.smallBlind || this.smallBlind,
+            startingStack
+        }
 
-        if (neatEntries.length > 0) {
-            // --- Parallel path: distribute tables across worker threads ---
-            const serializedNetworks = neatEntries.map(e => ({ id: e.id, encoded: e.network.encode() }))
-            const tableConfig = {
-                bigBlind: config.bigBlind || this.bigBlind,
-                button: 0,
-                hands: config.hands || this.handsPerTable,
-                smallBlind: config.smallBlind || this.smallBlind,
-                startingStack: config.startingStack || this.startingStack
+        // alive tracks who can still play — bust in any round = eliminated from future rounds
+        const alive = new Set(entries.map(e => e.id))
+        const stats = new Map(entries.map(e => [e.id, { allInRaises: 0, busts: 0, chipsWon: 0, hands: 0, handsActive: 0, id: e.id, appearances: 0 }]))
+
+        for (let round = 0; round < numRounds; round++) {
+            const aliveEntries = entries.filter(e => alive.has(e.id))
+            if (aliveEntries.length < 2) break
+
+            // Shuffle alive agents and assign to tables — each agent at most once per round
+            const shuffled = [...aliveEntries].sort(() => Math.random() - 0.5)
+            const tableAssignments = []
+            for (let i = 0; i < shuffled.length && tableAssignments.length < tablesPerRound; i += tableSize) {
+                const players = shuffled.slice(i, i + tableSize)
+                if (players.length >= 2) tableAssignments.push(players)
             }
-            const workerTables = tableAssignments.map(te => ({ players: te.map(e => this._agentSpec(e)) }))
+            if (!tableAssignments.length) break
 
-            // Chunk tables evenly across workers
-            const numWorkers = Math.min(NUM_WORKERS, numTables)
-            const chunkSize = Math.ceil(numTables / numWorkers)
+            // Every alive agent starts this round with a FRESH stack — but if they bust, they're out
+            const workerTables = tableAssignments.map(te => ({
+                players: te.map(e => ({ ...this._agentSpec(e), stack: startingStack }))
+            }))
+
+            const numWorkers = Math.min(NUM_WORKERS, tableAssignments.length)
+            const chunkSize = Math.ceil(tableAssignments.length / numWorkers)
             const chunks = []
             for (let i = 0; i < workerTables.length; i += chunkSize) chunks.push(workerTables.slice(i, i + chunkSize))
 
@@ -95,37 +114,27 @@ class PokerPlatform {
             for (const chunkResult of workerResults) {
                 for (const tableStandings of chunkResult) {
                     for (const player of tableStandings) {
-                        const item = standings.get(player.id)
+                        const item = stats.get(player.id)
                         if (!item) continue
                         item.appearances++
                         item.allInRaises += player.allInRaises || 0
                         item.busts += player.busts || 0
-                        item.chipsWon += player.chipsWon
-                        item.hands += tableConfig.hands
+                        item.hands += handsPerTable
                         item.handsActive += player.handsActive || 0
+                        item.chipsWon += player.chipsWon  // round P&L accumulates
+                        // Bust this round → eliminated from all future rounds
+                        if (player.stack === 0) alive.delete(player.id)
                     }
                 }
             }
-        } else {
-            // --- Sequential fallback (no network entries) ---
-            for (const tableEntries of tableAssignments) {
-                const result = this.playTable(tableEntries, config)
-                result.standings.forEach(player => {
-                    const item = standings.get(player.id)
-                    if (!item) return
-                    item.appearances++
-                    item.allInRaises += player.allInRaises || 0
-                    item.busts += player.busts || 0
-                    item.chipsWon += player.chipsWon
-                    item.hands += config.hands || this.handsPerTable
-                    item.handsActive += player.handsActive || 0
-                })
-            }
         }
 
-        return {
-            standings: [...standings.values()].sort((a, b) => b.chipsWon - a.chipsWon)
-        }
+        const standings = [...stats.values()].map(item => ({
+            ...item,
+            maxHands  // constant; busting early = missed positive earning rounds → naturally negative
+        })).sort((a, b) => b.chipsWon - a.chipsWon)
+
+        return { standings }
     }
 }
 

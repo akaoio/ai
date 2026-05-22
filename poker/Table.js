@@ -168,8 +168,8 @@ class PokerTable {
         }
         if (action.type === "check") return { type: "check" }
         if (action.type === "call") {
-            // Calling off ≥50% of remaining stack is reckless (same risk as a big raise)
-            if (player.stack > 0 && toCall >= player.stack * 0.5) player.allInRaises++
+            // Calling off ≥50% of remaining stack: heavy penalty (5 events worth)
+            if (player.stack > 0 && toCall >= player.stack * 0.5) player.allInRaises += 5
             this.wager(player, toCall)
             return { type: "call" }
         }
@@ -181,7 +181,8 @@ class PokerTable {
             this.wager(player, amountAdded)
             state.currentBet = player.committedRound
             state.minRaise = Math.max(this.bigBlind, state.currentBet - previous)
-            if (player.allIn || amountAdded > stackBefore * 0.5) player.allInRaises++
+            // Raising all-in or committing >50% of stack: heavy penalty (5 events worth)
+            if (player.allIn || amountAdded > stackBefore * 0.5) player.allInRaises += 5
             return { type: "raise" }
         }
         return { type: "check" }

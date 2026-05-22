@@ -45,7 +45,7 @@ const platform = new PokerPlatform({
     handsPerTable: HANDS_PER_TABLE,
     replacement: true,
     smallBlind: BIG_BLIND / 2,
-    startingStack: 500,
+    startingStack: 2000,  // 200BB — enough cushion for persistent bankroll across rounds
     tableSize: 8
 })
 
@@ -70,23 +70,20 @@ for (let generation = startGeneration; generation <= endGeneration; generation++
             { id: "heuristic-balanced", createAgent: () => new HeuristicAgent({ id: "heuristic-balanced", style: "balanced" }) },
             { id: "heuristic-aggressive", createAgent: () => new HeuristicAgent({ id: "heuristic-aggressive", style: "aggressive" }) }
         ],
-        // Fitness = BB/100 - allIn penalty - bust penalty
-        // allInRate measured over handsActive (hands with chips), not dead hands
-        // bustPenalty: each bust = lose full stack (50BB) → extra -50 BB/100 per bust/hand
+        // Fitness = BB/100 (normalized by maxHands) - allIn penalty
+        // Normalizing by maxHands (not actual hands) means busting early is punished naturally:
+        // you lose chips AND miss earning from future rounds — no explicit bust penalty needed.
         fitness: (standing) => {
-            if (!standing.hands) return 0
-            const bb100 = (standing.chipsWon / standing.hands) / BIG_BLIND * 100
-            // Use total hands (not just active) to avoid amplifying allIn rate when agent busts early
+            if (!standing.maxHands || !standing.hands) return -1000
+            // Divide by maxHands so surviving agents earn more fitness per chip won
+            const bb100 = (standing.chipsWon / standing.maxHands) / BIG_BLIND * 100
+            // allInRate over actual played hands (not maxHands) — reflects real behavior frequency
             const allInRate = (standing.allInRaises || 0) / standing.hands
-            const bustRate = (standing.busts || 0) / standing.hands
-            // Linear penalty from 0% — no free zone. Each % of large-bet frequency = 20 BB/100 penalty
-            const allInPenalty = allInRate * BIG_BLIND * 200
-            // Each bust = extra -50 BB/100 on top of chip loss already in bb100
-            const bustPenalty = bustRate * (platform.startingStack / BIG_BLIND) * 100
-            return bb100 - allInPenalty - bustPenalty
+            const allInPenalty = allInRate * BIG_BLIND * 800
+            return bb100 - allInPenalty
         },
         checkpoint: { directory: CHECKPOINT_DIR, generation },
-        generation: { hands: HANDS_PER_TABLE, tableSize: 8, tables: 100 },
+        generation: { hands: HANDS_PER_TABLE, rounds: 10, tableSize: 8, tables: 100 },
         platform
     })
 
@@ -121,11 +118,13 @@ for (let generation = startGeneration; generation <= endGeneration; generation++
         const avgAllInRate = neatStandings.length
             ? (neatStandings.reduce((sum, s) => sum + (s.allInRaises || 0) / Math.max(s.hands, 1), 0) / neatStandings.length * 100).toFixed(1)
             : "?"
-        const avgBustRate = neatStandings.length
-            ? (neatStandings.reduce((sum, s) => sum + (s.busts || 0) / Math.max(s.hands, 1), 0) / neatStandings.length * 100).toFixed(2)
+        const survivalCount = neatStandings.filter(s => s.chipsWon > -platform.startingStack).length
+        const survivalRate = neatStandings.length ? (survivalCount / neatStandings.length * 100).toFixed(0) : "?"
+        const avgFinalStack = neatStandings.length
+            ? (neatStandings.reduce((sum, s) => sum + s.chipsWon + platform.startingStack, 0) / neatStandings.length).toFixed(0)
             : "?"
         console.log(`  Top: ${topStandings.map(s => `${s.id}(${s.chipsWon > 0 ? "+" : ""}${s.chipsWon})`).join(", ")}`)
-        console.log(`  All-in rate avg: ${avgAllInRate}% | Bust rate avg: ${avgBustRate}% | Total elapsed: ${totalElapsed}min`)
+        console.log(`  Survived: ${survivalCount}/${neatStandings.length} (${survivalRate}%) | Avg final stack: ${avgFinalStack} | All-in rate avg: ${avgAllInRate}% | Elapsed: ${totalElapsed}min`)
     }
 
     ecosystem.produce()

@@ -299,8 +299,8 @@ export const actionFromOutputs = (outputs = [], context = {}) => {
         { type: "raise", score: outputs[2] ?? -Infinity, amount: potBet(Math.round(context.pot / 3)) },
         { type: "raise", score: outputs[3] ?? -Infinity, amount: potBet(Math.round(context.pot * 2 / 3)) },
         { type: "raise", score: outputs[4] ?? -Infinity, amount: potBet(context.pot) },
-        // all-in only available when raise is legal (has enough chips to raise)
-        ...(legal.has("raise") ? [{ type: "raise", score: outputs[5] ?? -Infinity, amount: context.maxRaiseTo }] : [])
+        // output[5] used to be all-in — now capped at 2x pot to prevent stack dumping
+        ...(legal.has("raise") ? [{ type: "raise", score: outputs[5] ?? -Infinity, amount: potBet(context.pot * 2) }] : [])
     ]
     return choices
         .filter(choice => legal.has(choice.type))

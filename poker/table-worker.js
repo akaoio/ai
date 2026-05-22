@@ -27,7 +27,7 @@ function makeAgent({ id, type, style }) {
 }
 
 const results = tables.map(({ players }) => {
-    const instances = players.map(spec => ({ id: spec.id, agent: makeAgent(spec) }))
+    const instances = players.map(spec => ({ id: spec.id, agent: makeAgent(spec), stack: spec.stack }))
     const table = new PokerTable({ ...config, players: instances })
     table.playHands(config.hands || 100)
     return table.standings()
