@@ -72,4 +72,8 @@ export const merge = (destination = {}, source = {}) => {
     return destination
 }
 
-export default { uid, random, rearrange, merge, createRng, setSeed, setRandomGenerator, getRandomGenerator, randomFloat, chance }
+// Quantize a float weight to ternary {-1, 0, +1} for BitNet.
+// Uses a dead zone: values within [-threshold, +threshold] become 0.
+export const quantize = (w, threshold = 0.33) => (w > threshold ? 1 : w < -threshold ? -1 : 0)
+
+export default { uid, random, rearrange, merge, createRng, setSeed, setRandomGenerator, getRandomGenerator, randomFloat, chance, quantize }

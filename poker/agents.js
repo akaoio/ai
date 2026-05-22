@@ -1,4 +1,5 @@
 import { evaluateFive, evaluateSeven } from "./evaluator.js"
+import { randomFloat } from "../Utils.js"
 
 const RANK_ORDER = "23456789TJQKA"
 
@@ -40,7 +41,7 @@ const duplicatePressure = (cards = []) => {
 
 const boardPaired = community => duplicatePressure(community) >= 2 ? 1 : 0
 
-const currentHandStrength = (hole = [], community = []) => {
+export const currentHandStrength = (hole = [], community = []) => {
     const cards = [...hole, ...community].filter(Boolean)
     if (cards.length < 5) {
         const duplicate = duplicatePressure(cards)
@@ -58,7 +59,22 @@ const overcards = (hole = [], community = []) => {
     return hole.filter(card => rank(card) > boardHigh).length / 2
 }
 
-export const OBSERVATION_SIZE = 43
+// Estimate preflop hand strength from hole cards alone (no community)
+const preflopStrength = (hole = []) => {
+    if (hole.length < 2) return 0
+    const [r1, r2] = hole.map(rank).sort((a, b) => b - a)
+    const paired = r1 === r2
+    const suited = hole[0]?.[1] === hole[1]?.[1]
+    const gap = r1 - r2
+    if (paired) return 0.35 + ((r1 - 2) / 12) * 0.65
+    const highBonus = (r1 - 2) / 12
+    const kicker = (r2 - 2) / 24
+    const suitBonus = suited ? 0.08 : 0
+    const connectBonus = Math.max(0, (5 - gap) / 5) * 0.07
+    return Math.min(0.98, highBonus * 0.5 + kicker + suitBonus + connectBonus)
+}
+
+export const OBSERVATION_SIZE = 45
 
 export class RandomAgent {
     constructor(config = {}) {
@@ -66,9 +82,104 @@ export class RandomAgent {
     }
 
     act(context = {}) {
-        if (context.legalActions.some(action => action.type === "check")) return { type: "check" }
-        if (context.legalActions.some(action => action.type === "call")) return { type: "call" }
+        const r = randomFloat(0, 1)
+        const canCheck = context.legalActions.some(a => a.type === "check")
+        const canCall = context.legalActions.some(a => a.type === "call")
+        const canRaise = context.legalActions.some(a => a.type === "raise")
+        // ~10% fold, ~15% raise, rest check/call
+        if (!canCheck && r < 0.10) return { type: "fold" }
+        if (canRaise && r < 0.15) return { type: "raise", amount: context.minRaiseTo }
+        if (canCheck) return { type: "check" }
+        if (canCall) return { type: "call" }
         return context.legalActions[0] || { type: "fold" }
+    }
+}
+
+// Rule-based heuristic agent with realistic poker logic
+export class HeuristicAgent {
+    constructor(config = {}) {
+        this.id = config.id || "heuristic"
+        // style: "tight" | "loose" | "aggressive" | "balanced"
+        this.style = config.style || "balanced"
+    }
+
+    act(context = {}) {
+        const canCheck = context.legalActions.some(a => a.type === "check")
+        const canCall = context.legalActions.some(a => a.type === "call")
+        const canRaise = context.legalActions.some(a => a.type === "raise")
+        const potOdds = context.toCall / Math.max(context.pot + context.toCall, 1)
+        const isLate = context.relativePosition >= context.playerCount * 0.55
+        const isButton = context.relativePosition === context.playerCount - 1
+
+        // Preflop
+        if (context.stageIndex === 0) {
+            const strength = preflopStrength(context.hole)
+            return this._preflopAction(context, strength, potOdds, isLate || isButton, canCheck, canCall, canRaise)
+        }
+
+        // Postflop
+        const strength = currentHandStrength(context.hole, context.community)
+        return this._postflopAction(context, strength, potOdds, canCheck, canCall, canRaise)
+    }
+
+    _preflopAction(context, strength, potOdds, isLate, canCheck, canCall, canRaise) {
+        const tightThresh = this.style === "tight" ? 0.12 : this.style === "loose" ? 0.05 : 0.08
+        const raiseThresh = this.style === "aggressive" ? 0.45 : this.style === "tight" ? 0.6 : 0.55
+
+        if (strength >= raiseThresh && canRaise) {
+            const amount = Math.min(context.maxRaiseTo, Math.max(context.minRaiseTo, context.bigBlind * 3))
+            return { type: "raise", amount }
+        }
+        if (strength >= 0.4 && canRaise && (isLate || this.style === "aggressive")) {
+            return { type: "raise", amount: context.minRaiseTo }
+        }
+        if (strength >= tightThresh) {
+            if (canCheck) return { type: "check" }
+            if (canCall && potOdds < 0.35) return { type: "call" }
+        }
+        if (canCheck) return { type: "check" }
+        return { type: "fold" }
+    }
+
+    _postflopAction(context, strength, potOdds, canCheck, canCall, canRaise) {
+        const spr = context.effectiveStack / Math.max(context.pot, context.bigBlind)
+        const committed = (context.committedHand || 0) / Math.max(context.startingStack, 1)
+
+        // Very strong hand: bet for value
+        if (strength >= 6 / 8) {
+            if (canRaise) {
+                const betSize = context.pot * (this.style === "aggressive" ? 1.0 : 0.75)
+                const amount = Math.min(context.maxRaiseTo, Math.max(context.minRaiseTo, context.currentBet + betSize))
+                return { type: "raise", amount }
+            }
+            return canCall ? { type: "call" } : { type: "check" }
+        }
+        // Strong hand: bet or call
+        if (strength >= 4 / 8) {
+            if (canRaise && spr > 2) {
+                const betSize = context.pot * 0.5
+                const amount = Math.min(context.maxRaiseTo, Math.max(context.minRaiseTo, context.currentBet + betSize))
+                return { type: "raise", amount }
+            }
+            if (canCheck) return { type: "check" }
+            if (canCall && potOdds < 0.40) return { type: "call" }
+            return { type: "fold" }
+        }
+        // Medium hand: check or call if cheap
+        if (strength >= 2 / 8) {
+            if (canCheck) return { type: "check" }
+            if (canCall && potOdds < 0.25) return { type: "call" }
+            // Pot-committed: call anyway
+            if (canCall && committed > 0.35) return { type: "call" }
+            return { type: "fold" }
+        }
+        // Weak hand: check or fold
+        if (canCheck) return { type: "check" }
+        // Bluff occasionally in aggressive style
+        if (this.style === "aggressive" && canRaise && randomFloat(0, 1) < 0.15) {
+            return { type: "raise", amount: context.minRaiseTo }
+        }
+        return { type: "fold" }
     }
 }
 
@@ -98,6 +209,8 @@ export const encodeObservation = context => {
     const totalStraightPressure = longestRun(knownCards) / 7
     const duplicateBoardPressure = duplicatePressure(context.community) / 4
     const duplicateTotalPressure = duplicatePressure(knownCards) / 4
+    const potCommitment = (context.committedHand || 0) / Math.max(context.startingStack, 1)
+    const betCommitment = context.currentBet / Math.max(context.pot + context.currentBet, context.bigBlind)
     return [
         context.stageIndex / 3,
         context.position / Math.max(context.playerCount - 1, 1),
@@ -135,18 +248,23 @@ export const encodeObservation = context => {
         context.legalActions.some(action => action.type === "call") ? 1 : 0,
         context.legalActions.some(action => action.type === "raise") ? 1 : 0,
         context.maxRaiseTo / Math.max(context.startingStack, 1),
+        potCommitment,
+        betCommitment,
         ...ranks
     ]
 }
 
 export const actionFromOutputs = (outputs = [], context = {}) => {
     const legal = new Map(context.legalActions.map(action => [action.type, action]))
+    // 6 outputs: fold | check/call | raise-small(1/3pot) | raise-medium(2/3pot) | raise-large(pot) | all-in
+    const potBet = amount => Math.min(context.maxRaiseTo, Math.max(context.minRaiseTo, context.currentBet + amount))
     const choices = [
         { type: "fold", score: outputs[0] ?? -Infinity },
         { type: legal.has("check") ? "check" : "call", score: outputs[1] ?? -Infinity },
-        { type: "raise", score: outputs[2] ?? -Infinity, amount: context.minRaiseTo },
-        { type: "raise", score: outputs[3] ?? -Infinity, amount: Math.min(context.maxRaiseTo, Math.max(context.minRaiseTo, context.currentBet + context.pot)) },
-        { type: "all-in", score: outputs[4] ?? -Infinity }
+        { type: "raise", score: outputs[2] ?? -Infinity, amount: potBet(Math.round(context.pot / 3)) },
+        { type: "raise", score: outputs[3] ?? -Infinity, amount: potBet(Math.round(context.pot * 2 / 3)) },
+        { type: "raise", score: outputs[4] ?? -Infinity, amount: potBet(context.pot) },
+        { type: "all-in", score: outputs[5] ?? -Infinity }
     ]
     return choices
         .filter(choice => legal.has(choice.type) || choice.type === "all-in")
@@ -166,4 +284,4 @@ export const createNeatAgent = (network, config = {}) => ({
     }
 })
 
-export default { RandomAgent, ScriptedAgent, createNeatAgent, encodeObservation, actionFromOutputs }
+export default { RandomAgent, ScriptedAgent, HeuristicAgent, createNeatAgent, encodeObservation, actionFromOutputs, currentHandStrength }

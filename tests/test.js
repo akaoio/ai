@@ -14,6 +14,8 @@ import { runNeatGeneration } from "../poker/neat.js"
 import { setSeed } from "../Utils.js"
 import { XOR } from "./exams.js"
 
+import { quantize } from "../Utils.js"
+
 const train = (data, config = {}) => {
     setSeed(42)
     const network = new Network({ layers: [2, 0, 10, 0, 1], ...config })
@@ -260,4 +262,75 @@ test("ecosystem speciation and reproduction keep a stable deterministic populati
 
     scoreXorPopulation(ecosystem)
     assert.ok(ecosystem.best().fitness > 2.5)
+})
+
+test("quantize snaps floats to ternary {-1, 0, +1}", () => {
+    assert.equal(quantize(0.9), 1)
+    assert.equal(quantize(-0.9), -1)
+    assert.equal(quantize(0.1), 0)
+    assert.equal(quantize(-0.1), 0)
+    assert.equal(quantize(0.33), 0)
+    assert.equal(quantize(0.34), 1)
+    assert.equal(quantize(-0.34), -1)
+})
+
+test("bitnet network quantizes weights to ternary during forward pass", () => {
+    setSeed(1)
+    const network = new Network({ activator: false, bitnet: true, layers: [1, 1] })
+    network.neurons.forEach(n => (n.bias = 0))
+    const connection = network.connections[0]
+
+    connection.weight = 0.8
+    assert.deepEqual(network.calculate([1]), [1])
+
+    connection.weight = -0.8
+    assert.deepEqual(network.calculate([1]), [-1])
+
+    connection.weight = 0.1
+    assert.deepEqual(network.calculate([1]), [0])
+})
+
+test("bitnet encode/decode preserves bn flag and ternary forward pass", () => {
+    setSeed(2)
+    const network = new Network({ activator: false, bitnet: true, layers: [1, 1] })
+    network.neurons.forEach(n => (n.bias = 0))
+    network.connections[0].weight = 0.9
+
+    const encoded = network.encode()
+    assert.equal(encoded.bn, true)
+
+    const clone = new Network(encoded)
+    assert.equal(clone.bitnet, true)
+    assert.deepEqual(clone.calculate([1]), [1])
+})
+
+test("bitnet ecosystem seeds networks with ternary weights and mutations stay ternary", () => {
+    setSeed(5)
+    const ecosystem = new Ecosystem({ bitnet: true, size: 10 })
+    ecosystem.seed({ layers: [2, 0, 1] })
+
+    const ternary = value => [-1, 0, 1].includes(value)
+
+    ecosystem.population.forEach(network => {
+        assert.equal(network.bitnet, true)
+        network.connections.forEach(connection => assert.ok(ternary(connection.weight), `weight ${connection.weight} not ternary`))
+    })
+
+    ecosystem.population.forEach(network => ecosystem.mutate(network))
+    ecosystem.population.forEach(network => {
+        network.connections.forEach(connection => assert.ok(ternary(connection.weight), `mutated weight ${connection.weight} not ternary`))
+    })
+})
+
+test("bitnet NEAT crossover offspring inherit bn flag and ternary weights", () => {
+    setSeed(6)
+    const ecosystem = new Ecosystem({ bitnet: true, size: 4 })
+    ecosystem.seed({ layers: [1, 0, 1] })
+    const [a, b] = ecosystem.population
+    a.fitness = 5
+    b.fitness = 3
+
+    const child = ecosystem.crossover(a, b)
+    assert.equal(child.bitnet, true)
+    child.connections.forEach(connection => assert.ok([-1, 0, 1].includes(connection.weight), `crossover weight ${connection.weight} not ternary`))
 })

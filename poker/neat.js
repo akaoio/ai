@@ -15,8 +15,15 @@ export const assignFitnessFromStandings = (population = [], standings = [], conf
     const values = new Map(standings.map(item => [item.id, item]))
     return population.map((network, index) => {
         const id = config.idFor ? config.idFor(network, index) : `genome-${index}`
-        const standing = values.get(id) || { appearances: 0, chipsWon: 0 }
-        network.fitness = config.fitness ? config.fitness(standing, network, index) : standing.appearances ? standing.chipsWon / standing.appearances : 0
+        const standing = values.get(id) || { appearances: 0, chipsWon: 0, hands: 0 }
+        if (config.fitness) {
+            network.fitness = config.fitness(standing, network, index)
+        } else if (standing.hands && config.bigBlind) {
+            // BB/100 hands: industry-standard poker performance metric
+            network.fitness = (standing.chipsWon / standing.hands) / config.bigBlind * 100
+        } else {
+            network.fitness = standing.appearances ? standing.chipsWon / standing.appearances : 0
+        }
         network.score = standing.chipsWon
         return network
     })
@@ -52,9 +59,27 @@ export const saveCheckpoint = async (ecosystem, result, config = {}) => {
 
 export const runNeatGeneration = async (ecosystem, config = {}) => {
     const platform = config.platform instanceof PokerPlatform ? config.platform : new PokerPlatform(config.platform)
-    const entrants = entrantsFromPopulation(ecosystem.population, config)
-    const result = platform.runGeneration(entrants, config.generation)
-    assignFitnessFromStandings(ecosystem.population, result.standings, config)
+
+    const neatEntrants = entrantsFromPopulation(ecosystem.population, config)
+
+    // Mix in baseline agents (heuristic/random opponents) for richer training signal
+    const baselineEntrants = (config.baseline || []).map((entry, index) => ({
+        createAgent: typeof entry.createAgent === "function" ? entry.createAgent : () => entry,
+        id: entry.id || `baseline-${index}`,
+        isBaseline: true
+    }))
+    const baselineIds = new Set(baselineEntrants.map(e => e.id))
+
+    const allEntrants = [...neatEntrants, ...baselineEntrants]
+    const result = platform.runGeneration(allEntrants, config.generation)
+
+    // Only assign fitness to NEAT genomes, not baseline agents
+    const neatStandings = result.standings.filter(s => !baselineIds.has(s.id))
+    assignFitnessFromStandings(ecosystem.population, neatStandings, {
+        ...config,
+        bigBlind: config.bigBlind ?? platform.bigBlind
+    })
+
     if (config.autosave !== false) result.checkpoint = await saveCheckpoint(ecosystem, result, config.checkpoint || {})
     return result
 }

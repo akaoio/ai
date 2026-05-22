@@ -112,6 +112,7 @@ class PokerTable {
             handNumber: this.handNumber,
             hole: [...player.hole],
             legalActions,
+            committedHand: player.committedHand,
             lastAggressorPosition: state.lastAggressorSeat ?? -1,
             maxRaiseTo: legalActions.find(action => action.type === "raise")?.max || player.committedRound + player.stack,
             minRaiseTo: legalActions.find(action => action.type === "raise")?.min || state.currentBet,

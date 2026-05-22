@@ -3,6 +3,7 @@ import Layer from "./Layer.js"
 import Neuron from "./Neuron.js"
 import activators from "./Activators.js"
 import derivatives from "./Derivatives.js"
+import { quantize } from "./Utils.js"
 
 class Network {
     constructor(config = {}) {
@@ -46,6 +47,15 @@ class Network {
     set connections(value) {
         this.c = value
         return this.c
+    }
+
+    get bitnet() {
+        return this.bn
+    }
+
+    set bitnet(value) {
+        this.bn = value
+        return this.bn
     }
 
     get type() {
@@ -131,6 +141,7 @@ class Network {
         this.i = config.i ?? config.iterations ?? 0 // Iterations, used in FF network.
         this.rs = config.rs ?? config.recurrentSteps ?? 2 // How many recurrent activation steps to run when delayed/recurrent edges exist.
         this.h = {} // Recurrent activation history by neuron id.
+        this.bn = config.bn ?? config.bitnet ?? false // BitNet mode: quantize weights to ternary {-1, 0, +1} during forward pass.
     }
 
     layer(config = {}) {
@@ -258,15 +269,18 @@ class Network {
 
         this.layers.forEach((layer, index) =>
             layer.neurons.forEach(neuron => {
+                let precomputed
                 if (index !== 0 || neuron.inputs.length) {
-                    neuron.input = neuron.inputs.reduce((value, connection) => {
+                    precomputed = neuron.inputs.reduce((value, connection) => {
+                        const w = this.bn ? quantize(connection.weight) : connection.weight
                         const source = this.isRecurrentConnection(connection, indexes) ? this.history(connection.from, connection.timestep) : connection.from.output || 0
-                        return value + connection.weight * source
+                        return value + w * source
                     }, 0)
+                    neuron.input = precomputed
                 }
                 const activator = typeof neuron.activator !== "undefined" ? neuron.activator : typeof layer.activator !== "undefined" ? layer.activator : this.activator
                 if (index === 0 && !neuron.inputs.length) neuron.output = neuron.input
-                else neuron.output = this.activate(neuron, activator)
+                else neuron.output = this.activate(neuron, activator, precomputed)
             })
         )
 
@@ -290,9 +304,10 @@ class Network {
         return output
     }
 
-    activate(neuron, activator) {
-        if (activator === false) return neuron.input
-        return activators[activator || this.activator](neuron.input + neuron.bias)
+    activate(neuron, activator, precomputed) {
+        const input = precomputed !== undefined ? precomputed : neuron.input
+        if (activator === false) return input
+        return activators[activator || this.activator](input + neuron.bias)
     }
 
     propagate() {
@@ -329,8 +344,8 @@ class Network {
             // If this is a layer without configs, just return its array of neurons.
             if (Object.keys(data).length === 1 && data.n) return result.n
             for (const key in data) {
-                // Skip external keys.
-                if (key.length > 1) continue
+                // Skip external keys (allow "bn" for bitnet flag in addition to single-char keys).
+                if (key.length > 1 && key !== "bn") continue
                 // Skip keys with defined value that already exist in result.
                 if (typeof result[key] !== "undefined") continue
                 // Skip undefined data and empty array.

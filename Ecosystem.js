@@ -35,6 +35,7 @@ class Ecosystem {
         this.nextSpeciesId = config.nextSpeciesId || 0
         this.connectionHistory = new Map(config.connectionHistory || [])
         this.splitHistory = new Map(config.splitHistory || [])
+        this.bitnet = config.bitnet ?? false // BitNet mode: use ternary {-1, 0, +1} weights throughout evolution.
     }
 
     best(population = this.population) {
@@ -291,6 +292,7 @@ class Ecosystem {
 
         const child = new Network({
             a: primary.activator,
+            bn: primary.bitnet,
             c: connections,
             l: layers,
             n: nodes,
@@ -380,7 +382,7 @@ class Ecosystem {
         if (!choice) return
         this.connectGene(network, choice.from, choice.to, {
             timestep: this.isRecurrentPair(choice.from, choice.to) ? 1 : 0,
-            weight: randomFloat(-1, 1)
+            weight: this.bitnet ? random([-1, 0, 1]) : randomFloat(-1, 1)
         })
     }
 
@@ -411,8 +413,9 @@ class Ecosystem {
         }
 
         this.ensureNodeMetadata(network)
+        const rightWeight = this.bitnet ? (connection.weight !== 0 ? connection.weight : 1) : connection.weight
         this.connectGene(network, connection.from, neuron, { s: true, w: 1, x: split.leftInnovation })
-        this.connectGene(network, neuron, connection.to, { s: true, w: connection.weight, x: split.rightInnovation })
+        this.connectGene(network, neuron, connection.to, { s: true, w: rightWeight, x: split.rightInnovation })
     }
 
     mutate(network) {
@@ -434,10 +437,14 @@ class Ecosystem {
 
         network.connections.forEach(connection => {
             if (chance(this.mutation.weight.rate)) {
-                const scale = Math.abs(connection.weight) || 1
-                connection.weight += scale * randomFloat(...this.mutation.weight.change) * random([-1, 1])
-                if (!isNaN(this.mutation.weight.min)) connection.weight = Math.max(connection.weight, this.mutation.weight.min)
-                if (!isNaN(this.mutation.weight.max)) connection.weight = Math.min(connection.weight, this.mutation.weight.max)
+                if (this.bitnet) {
+                    connection.weight = random([-1, 0, 1])
+                } else {
+                    const scale = Math.abs(connection.weight) || 1
+                    connection.weight += scale * randomFloat(...this.mutation.weight.change) * random([-1, 1])
+                    if (!isNaN(this.mutation.weight.min)) connection.weight = Math.max(connection.weight, this.mutation.weight.min)
+                    if (!isNaN(this.mutation.weight.max)) connection.weight = Math.min(connection.weight, this.mutation.weight.max)
+                }
             }
             if (chance(this.mutation.timestep.rate)) {
                 const scale = Math.abs(connection.timestep) || 1
@@ -509,7 +516,8 @@ class Ecosystem {
 
     seed(config = {}) {
         this.population = []
-        const template = this.ensureCanonical(new Network({ ...config, type: "neat" }))
+        const template = this.ensureCanonical(new Network({ ...config, type: "neat", bn: this.bitnet }))
+        if (this.bitnet) template.connections.forEach(c => (c.weight = random([-1, 0, 1])))
         this.population.push(template)
         for (let i = 1; i < this.size; i++) this.population.push(this.clone(template))
         return this.population
