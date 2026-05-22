@@ -1,10 +1,11 @@
 import Ecosystem from "../Ecosystem.js"
 import PokerPlatform from "./Platform.js"
 import { HeuristicAgent, OBSERVATION_SIZE } from "./agents.js"
-import { runNeatGeneration } from "./neat.js"
+import { loadLatestCheckpoint, runNeatGeneration } from "./neat.js"
 
 const generations = Number(process.argv[2] || 50)
 const BIG_BLIND = 10
+const CHECKPOINT_DIR = "poker/checkpoints/bitnet"
 
 const ecosystem = new Ecosystem({
     bitnet: true,
@@ -22,12 +23,18 @@ const ecosystem = new Ecosystem({
     targetSpecies: 10
 })
 
-// Seed: small topology so NEAT can grow toward thousands via mutations
-// 45 inputs → 16 hidden → 6 outputs (grows from here)
-ecosystem.seed({ layers: [OBSERVATION_SIZE, 16, 6], recurrentSteps: 2, type: "neat" })
-
-const initialNeurons = ecosystem.population[0].neurons.length
-const initialConnections = ecosystem.population[0].connections.length
+// Resume from latest checkpoint, or seed fresh if none exists
+const resumed = await loadLatestCheckpoint(CHECKPOINT_DIR, ecosystem)
+let startGeneration = 1
+if (resumed) {
+    startGeneration = resumed.generation + 1
+    console.log(`Resuming from ${resumed.file} (gen ${resumed.generation})`)
+} else {
+    // Seed: small topology so NEAT can grow toward thousands via mutations
+    // 45 inputs → 16 hidden → 6 outputs (grows from here)
+    ecosystem.seed({ layers: [OBSERVATION_SIZE, 16, 6], recurrentSteps: 2, type: "neat" })
+    console.log(`Fresh start: ${OBSERVATION_SIZE}→16→6 | neurons=${ecosystem.population[0].neurons.length} | connections=${ecosystem.population[0].connections.length}`)
+}
 
 const platform = new PokerPlatform({
     bigBlind: BIG_BLIND,
@@ -45,22 +52,22 @@ const baseline = [
     { id: "heuristic-loose", createAgent: () => new HeuristicAgent({ id: "heuristic-loose", style: "loose" }) }
 ]
 
-console.log(`BitNet NEAT Poker — ${generations} generations | pop=${ecosystem.size}`)
-console.log(`Seed network: ${OBSERVATION_SIZE}→16→6 | neurons=${initialNeurons} | connections=${initialConnections}`)
+const endGeneration = startGeneration + generations - 1
+console.log(`BitNet NEAT Poker — gen ${startGeneration}→${endGeneration} | pop=${ecosystem.size}`)
 console.log(`Platform: ${platform.tableSize} seats × 50 hands/table | BB=${BIG_BLIND}`)
 console.log("─".repeat(70))
 
 const t0 = Date.now()
 let overallBest = null
 
-for (let generation = 1; generation <= generations; generation++) {
+for (let generation = startGeneration; generation <= endGeneration; generation++) {
     const tGen = Date.now()
 
     let result
     result = await runNeatGeneration(ecosystem, {
         baseline,
         bigBlind: BIG_BLIND,
-        checkpoint: { directory: "poker/checkpoints/bitnet", generation },
+        checkpoint: { directory: CHECKPOINT_DIR, generation },
         generation: { hands: 50, tableSize: 8, tables: 100 },
         platform
     })

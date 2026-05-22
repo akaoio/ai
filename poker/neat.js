@@ -1,4 +1,4 @@
-import { mkdir, writeFile } from "fs/promises"
+import { mkdir, readdir, readFile, writeFile } from "fs/promises"
 import path from "path"
 
 import PokerPlatform from "./Platform.js"
@@ -32,7 +32,11 @@ export const assignFitnessFromStandings = (population = [], standings = [], conf
 
 export const serializeCheckpoint = (ecosystem, result, config = {}) => ({
     compatibility: ecosystem.compatibility,
+    connectionHistory: [...ecosystem.connectionHistory.entries()],
     generation: config.generation ?? 0,
+    nextConnectionInnovation: ecosystem.nextConnectionInnovation,
+    nextNodeInnovation: ecosystem.nextNodeInnovation,
+    nextSpeciesId: ecosystem.nextSpeciesId,
     population: ecosystem.population.map((network, index) => ({
         fitness: network.fitness ?? 0,
         id: config.idFor ? config.idFor(network, index) : `genome-${index}`,
@@ -45,6 +49,7 @@ export const serializeCheckpoint = (ecosystem, result, config = {}) => ({
         size: species.length,
         stagnant: species.stagnant ?? 0
     })),
+    splitHistory: [...ecosystem.splitHistory.entries()],
     standings: result.standings
 })
 
@@ -56,6 +61,39 @@ export const saveCheckpoint = async (ecosystem, result, config = {}) => {
     const payload = serializeCheckpoint(ecosystem, result, config)
     await writeFile(file, JSON.stringify(payload, null, 2) + "\n", "utf8")
     return { file, payload }
+}
+
+export const loadLatestCheckpoint = async (directory, ecosystem) => {
+    try {
+        const files = (await readdir(directory))
+            .filter(f => f.startsWith("generation-") && f.endsWith(".json"))
+            .sort()
+        if (!files.length) return null
+
+        const file = path.join(directory, files[files.length - 1])
+        const data = JSON.parse(await readFile(file, "utf8"))
+
+        // Restore innovation tracking state
+        if (data.connectionHistory) ecosystem.connectionHistory = new Map(data.connectionHistory)
+        if (data.splitHistory) ecosystem.splitHistory = new Map(data.splitHistory)
+        if (data.nextConnectionInnovation != null) ecosystem.nextConnectionInnovation = data.nextConnectionInnovation
+        if (data.nextNodeInnovation != null) ecosystem.nextNodeInnovation = data.nextNodeInnovation
+        if (data.nextSpeciesId != null) ecosystem.nextSpeciesId = data.nextSpeciesId
+        if (data.compatibility != null) ecosystem.compatibility = data.compatibility
+
+        // Restore population
+        const Network = (await import("../Network.js")).default
+        ecosystem.population = data.population.map(item => {
+            const net = new Network(item.network)
+            net.fitness = item.fitness ?? 0
+            net.score = item.score ?? 0
+            return ecosystem.ensureCanonical(net)
+        })
+
+        return { file, generation: data.generation }
+    } catch {
+        return null
+    }
 }
 
 export const runNeatGeneration = async (ecosystem, config = {}) => {
@@ -90,4 +128,4 @@ export const runNeatGeneration = async (ecosystem, config = {}) => {
     return result
 }
 
-export default { entrantsFromPopulation, assignFitnessFromStandings, serializeCheckpoint, saveCheckpoint, runNeatGeneration }
+export default { entrantsFromPopulation, assignFitnessFromStandings, serializeCheckpoint, saveCheckpoint, loadLatestCheckpoint, runNeatGeneration }
