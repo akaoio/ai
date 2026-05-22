@@ -193,6 +193,41 @@ export class ScriptedAgent {
     }
 }
 
+// Baseline agent that punishes reckless all-ins: folds to all-in pressure unless holding
+// a premium hand. Forces NEAT genomes to earn chips with skill, not pure shove variance.
+export class TightCallerAgent {
+    constructor(config = {}) {
+        this.id = config.id || "tight-caller"
+    }
+
+    act(context = {}) {
+        const canCheck = context.legalActions.some(a => a.type === "check")
+        const canCall = context.legalActions.some(a => a.type === "call")
+
+        // Use preflop hand strength formula when no community cards are dealt yet
+        const strength = context.community.length === 0
+            ? preflopStrength(context.hole)
+            : currentHandStrength(context.hole, context.community)
+
+        const potOdds = context.toCall > 0 ? context.toCall / Math.max(context.pot + context.toCall, context.bigBlind) : 0
+        // Fraction of remaining stack required to call
+        const stackRisk = context.toCall / Math.max(context.stack, 1)
+
+        // Facing an effective all-in (call would risk >60% of stack)
+        if (stackRisk > 0.6) {
+            // Preflop: TT+/AK/AQs range ≈ preflopStrength > 0.6
+            // Postflop: flush or better (category ≥ 5)
+            const threshold = context.community.length === 0 ? 0.6 : 5 / 8
+            if (strength >= threshold) return canCall ? { type: "call" } : { type: "check" }
+            return canCheck ? { type: "check" } : { type: "fold" }
+        }
+
+        if (canCheck) return { type: "check" }
+        if (canCall && strength >= 2 / 8 && potOdds < 0.35) return { type: "call" }
+        return { type: "fold" }
+    }
+}
+
 export const encodeObservation = context => {
     const knownCards = [...context.hole, ...context.community]
     const ranks = knownCards.map(card => (card ? (rank(card) - 2) / 12 : 0))
@@ -282,4 +317,4 @@ export const createNeatAgent = (network, config = {}) => ({
     }
 })
 
-export default { RandomAgent, ScriptedAgent, HeuristicAgent, createNeatAgent, encodeObservation, actionFromOutputs, currentHandStrength }
+export default { RandomAgent, ScriptedAgent, HeuristicAgent, TightCallerAgent, createNeatAgent, encodeObservation, actionFromOutputs, currentHandStrength }

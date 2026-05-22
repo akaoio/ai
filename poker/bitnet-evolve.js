@@ -1,6 +1,6 @@
 import Ecosystem from "../Ecosystem.js"
 import PokerPlatform from "./Platform.js"
-import { OBSERVATION_SIZE } from "./agents.js"
+import { OBSERVATION_SIZE, TightCallerAgent, HeuristicAgent } from "./agents.js"
 import { loadLatestCheckpoint, runNeatGeneration } from "./neat.js"
 
 const generations = process.argv[2] ? Number(process.argv[2]) : Infinity
@@ -64,6 +64,22 @@ for (let generation = startGeneration; generation <= endGeneration; generation++
     let result
     result = await runNeatGeneration(ecosystem, {
         bigBlind: BIG_BLIND,
+        baseline: [
+            { id: "tight-caller-1", createAgent: () => new TightCallerAgent({ id: "tight-caller-1" }) },
+            { id: "tight-caller-2", createAgent: () => new TightCallerAgent({ id: "tight-caller-2" }) },
+            { id: "heuristic-balanced", createAgent: () => new HeuristicAgent({ id: "heuristic-balanced", style: "balanced" }) },
+            { id: "heuristic-aggressive", createAgent: () => new HeuristicAgent({ id: "heuristic-aggressive", style: "aggressive" }) }
+        ],
+        // Penalise excessive all-in raises: subtract from BB/100 for every percent above
+        // the 15% threshold. At 50% all-in rate the penalty is ~210 BB/100 — enough to
+        // strongly discourage blind shoving while allowing legitimate all-ins.
+        fitness: (standing) => {
+            if (!standing.hands) return 0
+            const bb100 = (standing.chipsWon / standing.hands) / BIG_BLIND * 100
+            const allInRate = (standing.allInRaises || 0) / standing.hands
+            const penalty = Math.max(0, allInRate - 0.15) * BIG_BLIND * 60
+            return bb100 - penalty
+        },
         checkpoint: { directory: CHECKPOINT_DIR, generation },
         generation: { hands: HANDS_PER_TABLE, tableSize: 8, tables: 100 },
         platform
@@ -96,8 +112,12 @@ for (let generation = startGeneration; generation <= endGeneration; generation++
     if (generation % 5 === 0) {
         const topStandings = result.standings.slice(0, 3)
         const totalElapsed = ((Date.now() - t0) / 1000 / 60).toFixed(1)
+        const neatStandings = result.standings.filter(s => !s.id.startsWith("heuristic") && !s.id.startsWith("tight"))
+        const avgAllInRate = neatStandings.length
+            ? (neatStandings.reduce((sum, s) => sum + (s.allInRaises || 0) / Math.max(s.hands, 1), 0) / neatStandings.length * 100).toFixed(1)
+            : "?"
         console.log(`  Top: ${topStandings.map(s => `${s.id}(${s.chipsWon > 0 ? "+" : ""}${s.chipsWon})`).join(", ")}`)
-        console.log(`  Total elapsed: ${totalElapsed}min`)
+        console.log(`  All-in rate avg: ${avgAllInRate}% | Total elapsed: ${totalElapsed}min`)
     }
 
     ecosystem.produce()

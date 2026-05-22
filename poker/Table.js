@@ -11,6 +11,7 @@ class PokerTable {
         this.maxHands = config.maxHands || 1
         this.players = (config.players || []).map((player, seat) => ({
             agent: player.agent,
+            allInRaises: 0,
             chipsWon: 0,
             committedHand: 0,
             committedRound: 0,
@@ -174,6 +175,7 @@ class PokerTable {
             this.wager(player, target - player.committedRound)
             state.currentBet = player.committedRound
             state.minRaise = Math.max(this.bigBlind, state.currentBet - previous)
+            if (player.allIn) player.allInRaises++
             return { type: "raise" }
         }
         return { type: "check" }
@@ -277,6 +279,7 @@ class PokerTable {
 
     standings() {
         return this.players.map(player => ({
+            allInRaises: player.allInRaises,
             chipsWon: player.stack - player.tableStartStack,
             id: player.id,
             stack: player.stack

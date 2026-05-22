@@ -42,7 +42,7 @@ class PokerPlatform {
 
     runGeneration(entries = [], config = {}) {
         const tables = config.tables || Math.max(1, Math.ceil(entries.length / (config.tableSize || this.tableSize)))
-        const standings = new Map(entries.map(entry => [entry.id, { chipsWon: 0, hands: 0, id: entry.id, appearances: 0 }]))
+        const standings = new Map(entries.map(entry => [entry.id, { allInRaises: 0, chipsWon: 0, hands: 0, id: entry.id, appearances: 0 }]))
         const results = []
 
         for (let index = 0; index < tables; index++) {
@@ -53,6 +53,7 @@ class PokerPlatform {
             result.standings.forEach(player => {
                 const item = standings.get(player.id)
                 item.appearances++
+                item.allInRaises += player.allInRaises
                 item.chipsWon += player.chipsWon
                 item.hands += config.hands || this.handsPerTable
             })
