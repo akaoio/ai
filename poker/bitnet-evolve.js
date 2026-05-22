@@ -20,7 +20,9 @@ const ecosystem = new Ecosystem({
     },
     recurrent: true,
     size: 100,
-    targetSpecies: 10
+    targetSpecies: 10,
+    minCompatibility: 0.01,
+    compatibilityStep: 0.1
 })
 
 // Resume from latest checkpoint, or seed fresh if none exists
