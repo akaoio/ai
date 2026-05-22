@@ -1,4 +1,5 @@
 import { Visualization } from "../Visualization.js"
+import Network from "../Network.js"
 
 const CHECKPOINT_DIR = "/poker/checkpoints/bitnet"
 let autoInterval = null
@@ -129,10 +130,13 @@ async function updateNetwork() {
         if (!res.ok) return
         const { network, generation, fitness } = await res.json()
         if (!network) return
-        // Visualization.present() expects the encoded network format
-        viz.present(network)
-        $("network").title = `Gen ${generation} | fitness: ${fitness?.toFixed(2)} BB/100`
-    } catch {}
+        // Decode encoded JSON into a live Network object that Visualization.present() expects
+        const liveNet = new Network(network)
+        viz.present(liveNet)
+        $("network-info").textContent = `Gen ${generation} | fitness: ${fitness?.toFixed(2)} BB/100 | neurons: ${liveNet.n.length} | connections: ${liveNet.c.length}`
+    } catch (e) {
+        $("network-info").textContent = `Error: ${e.message}`
+    }
 }
 
 // ─── Main load ────────────────────────────────────────────────────────────────

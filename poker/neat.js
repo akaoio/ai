@@ -1,4 +1,4 @@
-import { mkdir, readdir, readFile, writeFile } from "fs/promises"
+import { mkdir, readdir, readFile, unlink, writeFile } from "fs/promises"
 import path from "path"
 
 import PokerPlatform from "./Platform.js"
@@ -60,6 +60,15 @@ export const saveCheckpoint = async (ecosystem, result, config = {}) => {
     const file = path.join(directory, `generation-${String(generation).padStart(6, "0")}.json`)
     const payload = serializeCheckpoint(ecosystem, result, config)
     await writeFile(file, JSON.stringify(payload, null, 2) + "\n", "utf8")
+
+    // Keep only the last 50 checkpoints
+    const keep = config.keep ?? 50
+    const allFiles = (await readdir(directory))
+        .filter(f => f.startsWith("generation-") && f.endsWith(".json"))
+        .sort()
+    const toDelete = allFiles.slice(0, Math.max(0, allFiles.length - keep))
+    await Promise.all(toDelete.map(f => unlink(path.join(directory, f))))
+
     return { file, payload }
 }
 

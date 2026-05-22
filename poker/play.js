@@ -60,11 +60,14 @@ function render(state) {
 
         const betText = p.committedHand > 0 ? `bet: ${p.committedHand}` : ""
         const cardsHtml = p.hole.map(c => cardHTML(c)).join("")
+        const actionBadge = p.lastAction ? `<div class="paction ${p.lastAction.startsWith('raise') ? 'act-raise' : 'act-' + p.lastAction}">${p.lastAction}</div>` : ""
+        const allInBadge = p.allIn ? `<div class="paction act-allin">ALL IN</div>` : ""
 
         el.innerHTML = `
             <div class="pname">${p.isHuman ? "YOU" : p.id}</div>
             <div class="pstack">${p.stack} chips</div>
             <div class="pbet">${betText}</div>
+            ${actionBadge || allInBadge}
             <div class="cards">${cardsHtml}</div>
         `
     })
@@ -78,6 +81,7 @@ function render(state) {
     const btnCheck = document.getElementById("btn-check")
     const btnCall = document.getElementById("btn-call")
     const btnRaise = document.getElementById("btn-raise")
+    const btnAllIn = document.getElementById("btn-allin")
     const raiseInput = document.getElementById("raise-amount")
     const raiseHint = document.getElementById("raise-hint")
 
@@ -85,6 +89,7 @@ function render(state) {
     btnCheck.disabled = !isHumanTurn || !legalTypes.has("check")
     btnCall.disabled = !isHumanTurn || !legalTypes.has("call")
     btnRaise.disabled = !isHumanTurn || !legalTypes.has("raise")
+    btnAllIn.disabled = !isHumanTurn || !legalTypes.has("raise")
 
     if (isHumanTurn && legalTypes.has("raise")) {
         const r = legal.find(a => a.type === "raise")
@@ -92,9 +97,11 @@ function render(state) {
         raiseInput.min = r.min; raiseInput.max = r.max
         if (!raiseInput.value || +raiseInput.value < r.min) raiseInput.value = r.min
         raiseHint.textContent = `(${r.min}–${r.max})`
+        btnAllIn.textContent = `All In ${r.max}`
     } else {
         raiseInput.style.display = "none"
         raiseHint.textContent = ""
+        btnAllIn.textContent = "All In"
     }
 
     // Call button label
@@ -191,6 +198,10 @@ document.getElementById("btn-call").addEventListener("click", () => sendAction({
 document.getElementById("btn-raise").addEventListener("click", () => {
     const amount = parseInt(document.getElementById("raise-amount").value, 10)
     sendAction({ type: "raise", amount })
+})
+document.getElementById("btn-allin").addEventListener("click", () => {
+    const r = document.getElementById("raise-amount")
+    sendAction({ type: "raise", amount: parseInt(r.max, 10) })
 })
 
 async function nextHand() {

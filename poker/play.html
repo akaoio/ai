@@ -42,10 +42,20 @@ h1 { margin: 16px 0 6px; color: #ffd700; font-size: 1.4em; letter-spacing: 2px; 
 #btn-check { background: #494; color: #fff; }
 #btn-call { background: #226; color: #fff; }
 #btn-raise { background: #854; color: #fff; }
+#btn-allin { background: #722; color: #ffd700; font-weight: bold; border: 1px solid #ffd70066; }
 #raise-amount { width: 80px; padding: 6px 8px; border-radius: 5px; border: 1px solid #555; background: #222; color: #eee; font-size: .9em; }
 #raise-hint { font-size: .75em; color: #aaa; }
 #btn-new { background: #555; color: #fff; margin-left: auto; }
 #action-status { font-size: .82em; color: #fa8; font-style: italic; }
+
+/* Action badges on seats */
+.paction { display: inline-block; margin: 2px auto; padding: 1px 6px; border-radius: 8px; font-size: .65em; font-weight: bold; }
+.act-fold { background: #611; color: #faa; }
+.act-check { background: #163; color: #afa; }
+.act-call { background: #124; color: #acf; }
+.act-raise { background: #541; color: #fca; }
+.act-allin { background: #720; color: #ffd700; animation: pulse 1s infinite; }
+@keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.6} }
 
 /* ── Log ── */
 #log-wrap { margin: 0 auto 20px; width: 760px; background: #111; border-radius: 10px; padding: 8px 12px; max-height: 150px; overflow-y: auto; }
@@ -86,6 +96,7 @@ h1 { margin: 16px 0 6px; color: #ffd700; font-size: 1.4em; letter-spacing: 2px; 
   <button id="btn-check" disabled>Check</button>
   <button id="btn-call" disabled>Call</button>
   <button id="btn-raise" disabled>Raise</button>
+  <button id="btn-allin" disabled>All In</button>
   <input id="raise-amount" type="number" placeholder="amount" style="display:none">
   <span id="raise-hint"></span>
   <span id="action-status"></span>

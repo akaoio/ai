@@ -144,15 +144,20 @@ export class InteractiveGame {
 
     applyAction(player, action, state) {
         const toCall = Math.max(0, state.currentBet - player.committedRound)
-        if (action.type === "fold") { player.folded = true; return { type: "fold" } }
-        if (action.type === "check") return { type: "check" }
-        if (action.type === "call") { this.wager(player, toCall); return { type: "call" } }
+        if (action.type === "fold") { player.folded = true; player.lastAction = "fold"; return { type: "fold" } }
+        if (action.type === "check") { player.lastAction = "check"; return { type: "check" } }
+        if (action.type === "call") {
+            this.wager(player, toCall)
+            player.lastAction = player.allIn ? "all-in" : "call"
+            return { type: "call" }
+        }
         if (action.type === "raise") {
             const prev = state.currentBet
             const target = Math.min(action.amount, player.committedRound + player.stack)
             this.wager(player, target - player.committedRound)
             state.currentBet = player.committedRound
             state.minRaise = Math.max(this.bigBlind, state.currentBet - prev)
+            player.lastAction = player.allIn ? "all-in" : `raise ${player.committedRound}`
             return { type: "raise", amount: player.committedRound }
         }
         return { type: "check" }
@@ -206,6 +211,9 @@ export class InteractiveGame {
                 state.actionCount++
                 progressed = true
 
+                // Small delay after AI actions so frontend can see them
+                if (!player.isHuman) await new Promise(r => setTimeout(r, 400))
+
                 if (result.type === "raise") {
                     state.raiseCount++
                     state.lastAggressorSeat = player.seat
@@ -218,7 +226,7 @@ export class InteractiveGame {
             if (!progressed) break
         }
 
-        this.players.forEach(p => { p.committedRound = 0 })
+        this.players.forEach(p => { p.committedRound = 0; p.lastAction = null })
     }
 
     sidePots() {
@@ -294,16 +302,22 @@ export class InteractiveGame {
         if (this.contenders().length > 1) {
             this.community.push(...[deck.shift(), deck.shift(), deck.shift()])
             this.log.push({ text: `Flop: ${this.community.slice(0, 3).join(" ")}` })
+            this.stage = "flop"
+            await new Promise(r => setTimeout(r, 800))
             await this.playBettingRound("flop", this.nextSeat(this.button, p => !p.folded))
         }
         if (this.contenders().length > 1) {
             this.community.push(deck.shift())
             this.log.push({ text: `Turn: ${this.community[3]}` })
+            this.stage = "turn"
+            await new Promise(r => setTimeout(r, 600))
             await this.playBettingRound("turn", this.nextSeat(this.button, p => !p.folded))
         }
         if (this.contenders().length > 1) {
             this.community.push(deck.shift())
             this.log.push({ text: `River: ${this.community[4]}` })
+            this.stage = "river"
+            await new Promise(r => setTimeout(r, 600))
             await this.playBettingRound("river", this.nextSeat(this.button, p => !p.folded))
         }
 
@@ -360,6 +374,7 @@ export class InteractiveGame {
                 hole: p.isHuman ? p.hole : (this.stage === "showdown" && this.handResult?.showdown ? p.hole : ["??", "??"]),
                 id: p.id,
                 isHuman: p.isHuman,
+                lastAction: p.lastAction || null,
                 seat: p.seat,
                 stack: p.stack,
                 active: this.currentTurn === p.id
