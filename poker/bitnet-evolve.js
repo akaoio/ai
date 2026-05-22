@@ -3,7 +3,7 @@ import PokerPlatform from "./Platform.js"
 import { HeuristicAgent, OBSERVATION_SIZE } from "./agents.js"
 import { loadLatestCheckpoint, runNeatGeneration } from "./neat.js"
 
-const generations = Number(process.argv[2] || 50)
+const generations = process.argv[2] ? Number(process.argv[2]) : Infinity
 const BIG_BLIND = 10
 const CHECKPOINT_DIR = "poker/checkpoints/bitnet"
 
@@ -53,7 +53,8 @@ const baseline = [
 ]
 
 const endGeneration = startGeneration + generations - 1
-console.log(`BitNet NEAT Poker — gen ${startGeneration}→${endGeneration} | pop=${ecosystem.size}`)
+const rangeLabel = isFinite(endGeneration) ? `gen ${startGeneration}→${endGeneration}` : `gen ${startGeneration}→∞`
+console.log(`BitNet NEAT Poker — ${rangeLabel} | pop=${ecosystem.size}`)
 console.log(`Platform: ${platform.tableSize} seats × 50 hands/table | BB=${BIG_BLIND}`)
 console.log("─".repeat(70))
 
