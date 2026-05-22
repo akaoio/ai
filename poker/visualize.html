@@ -1,0 +1,85 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Poker Evolution Dashboard</title>
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body { background: #0f0f0f; color: #e0e0e0; font-family: 'Courier New', monospace; padding: 16px; }
+        h1 { font-size: 18px; color: #7dd87d; margin-bottom: 16px; letter-spacing: 2px; }
+        h2 { font-size: 13px; color: #888; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 8px; }
+
+        .stats-row { display: flex; gap: 12px; margin-bottom: 16px; flex-wrap: wrap; }
+        .stat { background: #1a1a1a; border: 1px solid #2a2a2a; border-radius: 6px; padding: 12px 18px; min-width: 130px; }
+        .stat .label { font-size: 11px; color: #666; margin-bottom: 4px; }
+        .stat .value { font-size: 22px; color: #7dd87d; font-weight: bold; }
+        .stat .value.negative { color: #e05555; }
+        .stat .value.neutral { color: #aaa; }
+
+        .panels { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+        @media (max-width: 900px) { .panels { grid-template-columns: 1fr; } }
+
+        .panel { background: #1a1a1a; border: 1px solid #2a2a2a; border-radius: 6px; padding: 16px; }
+        .panel.full { grid-column: 1 / -1; }
+
+        canvas { width: 100%; display: block; }
+        svg#network { width: 100%; height: 400px; display: block; background: #111; border-radius: 4px; }
+
+        .controls { display: flex; gap: 8px; align-items: center; margin-bottom: 16px; flex-wrap: wrap; }
+        button { background: #2a2a2a; color: #ccc; border: 1px solid #444; border-radius: 4px; padding: 6px 14px; cursor: pointer; font-family: inherit; font-size: 12px; }
+        button:hover { background: #333; }
+        button.active { background: #7dd87d; color: #000; border-color: #7dd87d; }
+        .badge { font-size: 11px; color: #555; }
+        #status { font-size: 11px; color: #555; margin-left: auto; }
+
+        .legend { display: flex; gap: 16px; margin-top: 8px; }
+        .legend-item { display: flex; align-items: center; gap: 6px; font-size: 11px; color: #888; }
+        .legend-dot { width: 10px; height: 3px; border-radius: 2px; }
+    </style>
+</head>
+<body>
+    <h1>⚡ POKER EVOLUTION DASHBOARD</h1>
+
+    <div class="controls">
+        <button id="btn-refresh" onclick="load()">↺ Refresh</button>
+        <button id="btn-auto" onclick="toggleAuto()">Auto-refresh: OFF</button>
+        <span class="badge" id="gen-range"></span>
+        <span id="status">Loading…</span>
+    </div>
+
+    <div class="stats-row">
+        <div class="stat"><div class="label">Generation</div><div class="value neutral" id="s-gen">—</div></div>
+        <div class="stat"><div class="label">Best Fitness (BB/100)</div><div class="value" id="s-best">—</div></div>
+        <div class="stat"><div class="label">Avg Fitness (BB/100)</div><div class="value" id="s-avg">—</div></div>
+        <div class="stat"><div class="label">Species</div><div class="value neutral" id="s-species">—</div></div>
+        <div class="stat"><div class="label">Max Neurons</div><div class="value neutral" id="s-neurons">—</div></div>
+        <div class="stat"><div class="label">Avg Neurons</div><div class="value neutral" id="s-avg-neurons">—</div></div>
+    </div>
+
+    <div class="panels">
+        <div class="panel">
+            <h2>Fitness over Generations</h2>
+            <canvas id="chart-fitness" height="220"></canvas>
+            <div class="legend">
+                <div class="legend-item"><div class="legend-dot" style="background:#7dd87d"></div>Best BB/100</div>
+                <div class="legend-item"><div class="legend-dot" style="background:#2772db"></div>Avg BB/100</div>
+            </div>
+        </div>
+        <div class="panel">
+            <h2>Neuron Growth</h2>
+            <canvas id="chart-neurons" height="220"></canvas>
+            <div class="legend">
+                <div class="legend-item"><div class="legend-dot" style="background:#f0a500"></div>Max neurons</div>
+                <div class="legend-item"><div class="legend-dot" style="background:#888"></div>Avg neurons</div>
+            </div>
+        </div>
+        <div class="panel full">
+            <h2>Best Network Topology (latest checkpoint)</h2>
+            <svg id="network" width="1200" height="400"></svg>
+        </div>
+    </div>
+
+    <script type="module" src="./visualize.js"></script>
+</body>
+</html>
