@@ -181,7 +181,10 @@ class Ecosystem {
         const awd = matching === 0 ? 0 : weightDifference / matching
         const normalizer = Math.max(genes1.length, genes2.length)
         const size = normalizer < 20 ? 1 : normalizer
-        return (this.xdc * excess) / size + (this.ddc * disjoint) / size + this.wdc * awd
+        // BitNet weights are ternary {-1,0,1} — tiny diffs collapse all genomes into 1 species.
+        // Use topology-only distance (excess + disjoint) so speciation works on structure.
+        const weightContribution = this.bitnet ? 0 : this.wdc * awd
+        return (this.xdc * excess) / size + (this.ddc * disjoint) / size + weightContribution
     }
 
     compare(N1 = {}, N2 = {}) {
