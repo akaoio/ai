@@ -172,10 +172,12 @@ class PokerTable {
         if (action.type === "raise") {
             const previous = state.currentBet
             const target = Math.min(action.amount, player.committedRound + player.stack)
-            this.wager(player, target - player.committedRound)
+            const amountAdded = target - player.committedRound
+            const stackBefore = player.stack
+            this.wager(player, amountAdded)
             state.currentBet = player.committedRound
             state.minRaise = Math.max(this.bigBlind, state.currentBet - previous)
-            if (player.allIn) player.allInRaises++
+            if (player.allIn || amountAdded > stackBefore * 0.75) player.allInRaises++
             return { type: "raise" }
         }
         return { type: "check" }
