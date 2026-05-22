@@ -5,6 +5,45 @@ import url from "url"
 
 const port = 3000
 
+// ─── Interactive Poker Game Session ──────────────────────────────────────────
+let gameSession = null
+let gameLoopPromise = null
+
+async function startNewGame() {
+    const { InteractiveGame, HumanAgent } = await import("./poker/InteractiveGame.js")
+    const { HeuristicAgent, createNeatAgent } = await import("./poker/agents.js")
+    const { loadLatestCheckpoint } = await import("./poker/neat.js")
+    const Ecosystem = (await import("./Ecosystem.js")).default
+
+    // Load best genome from latest checkpoint
+    const ecosystem = new Ecosystem({ bitnet: true, size: 100 })
+    const resumed = await loadLatestCheckpoint("poker/checkpoints/bitnet", ecosystem)
+    const bestNetwork = ecosystem.best() || ecosystem.population[0]
+
+    const humanAgent = new HumanAgent()
+    const players = [
+        { id: "human", agent: humanAgent },
+        { id: resumed ? `AI-gen${resumed.generation}` : "AI-best", agent: createNeatAgent(bestNetwork) },
+        { id: "heuristic-tight", agent: new HeuristicAgent({ id: "heuristic-tight", style: "tight" }) },
+        { id: "heuristic-balanced", agent: new HeuristicAgent({ id: "heuristic-balanced", style: "balanced" }) },
+        { id: "heuristic-aggressive", agent: new HeuristicAgent({ id: "heuristic-aggressive", style: "aggressive" }) },
+    ]
+
+    gameSession = new InteractiveGame(players, { bigBlind: 10, smallBlind: 5, startingStack: 500 })
+    gameSession._humanAgent = humanAgent
+    gameSession._info = resumed ? `Loaded gen ${resumed.generation} best genome` : "No checkpoint — using fresh network"
+
+    // Run game loop in background (plays hands continuously)
+    gameLoopPromise = (async () => {
+        while (true) {
+            await gameSession.playHand()
+            if (gameSession.activeSeats().length < 2) break
+        }
+    })()
+
+    return gameSession
+}
+
 http.createServer(function (request, response) {
     console.log("REQUEST", request.url)
     const parsed = url.parse(request.url)
@@ -45,6 +84,52 @@ http.createServer(function (request, response) {
             response.writeHead(500, { "Content-Type": "application/json" })
             response.end(JSON.stringify({ error: e.message }))
         }
+        return
+    }
+
+    // API: interactive play routes
+    if (parsed.pathname === "/api/play/new") {
+        let body = ""
+        request.on("data", d => { body += d })
+        request.on("end", async () => {
+            try {
+                gameSession = null
+                await startNewGame()
+                response.writeHead(200, { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" })
+                response.end(JSON.stringify({ ok: true, info: gameSession._info }))
+            } catch (e) {
+                response.writeHead(500, { "Content-Type": "application/json" })
+                response.end(JSON.stringify({ error: e.message }))
+            }
+        })
+        return
+    }
+    if (parsed.pathname === "/api/play/state") {
+        response.writeHead(200, { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" })
+        if (!gameSession) {
+            response.end(JSON.stringify({ started: false }))
+        } else {
+            response.end(JSON.stringify(gameSession.getState()))
+        }
+        return
+    }
+    if (parsed.pathname === "/api/play/action") {
+        let body = ""
+        request.on("data", d => { body += d })
+        request.on("end", async () => {
+            try {
+                if (!gameSession) throw new Error("No game session. POST /api/play/new first.")
+                const { action } = JSON.parse(body)
+                gameSession._humanAgent.submit(action)
+                // Give the game loop a tick to advance
+                await new Promise(r => setTimeout(r, 50))
+                response.writeHead(200, { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" })
+                response.end(JSON.stringify(gameSession.getState()))
+            } catch (e) {
+                response.writeHead(400, { "Content-Type": "application/json" })
+                response.end(JSON.stringify({ error: e.message }))
+            }
+        })
         return
     }
 
