@@ -1,6 +1,6 @@
 import Ecosystem from "../Ecosystem.js"
 import PokerPlatform from "./Platform.js"
-import { HeuristicAgent, OBSERVATION_SIZE } from "./agents.js"
+import { OBSERVATION_SIZE } from "./agents.js"
 import { loadLatestCheckpoint, runNeatGeneration } from "./neat.js"
 
 const generations = process.argv[2] ? Number(process.argv[2]) : Infinity
@@ -49,13 +49,6 @@ const platform = new PokerPlatform({
     tableSize: 8
 })
 
-const baseline = [
-    { id: "heuristic-tight", createAgent: () => new HeuristicAgent({ id: "heuristic-tight", style: "tight" }) },
-    { id: "heuristic-balanced", createAgent: () => new HeuristicAgent({ id: "heuristic-balanced", style: "balanced" }) },
-    { id: "heuristic-aggressive", createAgent: () => new HeuristicAgent({ id: "heuristic-aggressive", style: "aggressive" }) },
-    { id: "heuristic-loose", createAgent: () => new HeuristicAgent({ id: "heuristic-loose", style: "loose" }) }
-]
-
 const endGeneration = startGeneration + generations - 1
 const rangeLabel = isFinite(endGeneration) ? `gen ${startGeneration}→${endGeneration}` : `gen ${startGeneration}→∞`
 console.log(`BitNet NEAT Poker — ${rangeLabel} | pop=${ecosystem.size}`)
@@ -70,7 +63,6 @@ for (let generation = startGeneration; generation <= endGeneration; generation++
 
     let result
     result = await runNeatGeneration(ecosystem, {
-        baseline,
         bigBlind: BIG_BLIND,
         checkpoint: { directory: CHECKPOINT_DIR, generation },
         generation: { hands: HANDS_PER_TABLE, tableSize: 8, tables: 100 },
