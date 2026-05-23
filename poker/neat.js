@@ -93,17 +93,40 @@ export const saveCheckpoint = async (ecosystem, result, config = {}) => {
     const toDelete = allFiles.slice(0, Math.max(0, allFiles.length - keep))
     await Promise.all(toDelete.map(f => unlink(path.join(directory, f))))
 
+    // Maintain peak.json — points to the checkpoint with the highest individual fitness
+    const bestFitness = Math.max(...payload.population.map(p => p.fitness ?? -Infinity))
+    const peakFile = path.join(directory, "peak.json")
+    let currentPeak = { fitness: -Infinity }
+    try { currentPeak = JSON.parse(await readFile(peakFile, "utf8")) } catch {}
+    if (bestFitness > (currentPeak.fitness ?? -Infinity)) {
+        await writeFile(peakFile, JSON.stringify({ file: path.basename(file), fitness: bestFitness, generation }), "utf8")
+    }
+
     return { file, payload }
 }
 
-export const loadLatestCheckpoint = async (directory, ecosystem) => {
+export const loadPeakCheckpoint = async (directory, ecosystem) => {
+    try {
+        const meta = JSON.parse(await readFile(path.join(directory, "peak.json"), "utf8"))
+        const filePath = path.join(directory, meta.file)
+        // Fall back to latest if the referenced file was pruned
+        const exists = await readFile(filePath, "utf8").then(() => true).catch(() => false)
+        if (exists) {
+            const result = await loadLatestCheckpoint(directory, ecosystem, filePath)
+            return result ? { ...result, isPeak: true } : null
+        }
+    } catch {}
+    return loadLatestCheckpoint(directory, ecosystem)
+}
+
+export const loadLatestCheckpoint = async (directory, ecosystem, overrideFile = null) => {
     try {
         const files = (await readdir(directory))
             .filter(f => f.startsWith("generation-") && f.endsWith(".json"))
             .sort()
         if (!files.length) return null
 
-        const file = path.join(directory, files[files.length - 1])
+        const file = overrideFile ?? path.join(directory, files[files.length - 1])
         const data = JSON.parse(await readFile(file, "utf8"))
 
         // Restore innovation tracking state
@@ -174,4 +197,4 @@ export const runNeatGeneration = async (ecosystem, config = {}) => {
     return result
 }
 
-export default { entrantsFromPopulation, assignFitnessFromStandings, serializeCheckpoint, saveCheckpoint, loadLatestCheckpoint, runNeatGeneration }
+export default { entrantsFromPopulation, assignFitnessFromStandings, serializeCheckpoint, saveCheckpoint, loadLatestCheckpoint, loadPeakCheckpoint, runNeatGeneration }

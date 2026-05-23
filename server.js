@@ -12,17 +12,18 @@ let gameLoopPromise = null
 async function startNewGame() {
     const { InteractiveGame, HumanAgent } = await import("./poker/InteractiveGame.js")
     const { createNeatAgent } = await import("./poker/agents.js")
-    const { loadLatestCheckpoint } = await import("./poker/neat.js")
+    const { loadPeakCheckpoint } = await import("./poker/neat.js")
     const { loadWasmKernels } = await import("./Wasm.js")
     const Ecosystem = (await import("./Ecosystem.js")).default
 
-    // Load best genome from latest checkpoint
+    // Load top genomes from peak checkpoint (highest ever best fitness), not just latest
     const ecosystem = new Ecosystem({ bitnet: true, size: 20 })
-    const resumed = await loadLatestCheckpoint("poker/checkpoints/bitnet", ecosystem)
+    const resumed = await loadPeakCheckpoint("poker/checkpoints/bitnet", ecosystem)
 
     // Load top 4 genomes from latest checkpoint — all opponents are evolved AI
     const sortedPop = [...ecosystem.population].sort((a, b) => (b.fitness ?? -Infinity) - (a.fitness ?? -Infinity))
     const gen = resumed?.generation ?? 0
+    const peakLabel = resumed?.isPeak ? ` (peak)` : ""
 
     // Compile AI networks with WASM for fast inference (68x speedup over pure JS)
     const wasm = await loadWasmKernels()
@@ -32,14 +33,14 @@ async function startNewGame() {
     const players = [
         { id: "human", agent: humanAgent },
         ...sortedPop.slice(0, 4).map((net, i) => ({
-            id: `AI-gen${gen}-#${i + 1}`,
+            id: `AI-gen${gen}${peakLabel}-#${i + 1}`,
             agent: createNeatAgent(net)
         }))
     ]
 
     gameSession = new InteractiveGame(players, { bigBlind: 10, smallBlind: 5, startingStack: 500 })
     gameSession._humanAgent = humanAgent
-    gameSession._info = resumed ? `Loaded gen ${gen} — top 4 evolved AI` : "No checkpoint — using fresh networks"
+    gameSession._info = resumed ? `Loaded gen ${gen}${peakLabel} — top 4 evolved AI` : "No checkpoint — using fresh networks"
 
     // Game loop: plays one hand at a time, pauses between hands
     // Call gameSession._startNextHand() to trigger the next hand
@@ -51,12 +52,13 @@ async function startNewGame() {
             fn()
         }
     }
+    const session = gameSession
     gameLoopPromise = (async () => {
-        await gameSession.playHand()
+        await session.playHand()
         while (true) {
-            if (gameSession.activeSeats().length < 2) { gameSession._gameOver = true; break }
-            await new Promise(resolve => { gameSession._nextHandTrigger = resolve })
-            await gameSession.playHand()
+            if (session.activeSeats().length < 2) { session._gameOver = true; break }
+            await new Promise(resolve => { session._nextHandTrigger = resolve })
+            await session.playHand()
         }
     })()
 
