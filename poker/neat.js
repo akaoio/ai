@@ -93,30 +93,34 @@ export const saveCheckpoint = async (ecosystem, result, config = {}) => {
     const toDelete = allFiles.slice(0, Math.max(0, allFiles.length - keep))
     await Promise.all(toDelete.map(f => unlink(path.join(directory, f))))
 
-    // Maintain peak.json — points to the checkpoint with the highest individual fitness
+    // Maintain summaries.json — maps filename → bestFitness for the current kept window.
+    // Peak is always the best within the last `keep` generations, not an all-time record.
+    const summariesFile = path.join(directory, "summaries.json")
+    let summaries = {}
+    try { summaries = JSON.parse(await readFile(summariesFile, "utf8")) } catch {}
+    // Add new entry
     const bestFitness = Math.max(...payload.population.map(p => p.fitness ?? -Infinity))
-    const peakFile = path.join(directory, "peak.json")
-    let currentPeak = { fitness: -Infinity }
-    try { currentPeak = JSON.parse(await readFile(peakFile, "utf8")) } catch {}
-    if (bestFitness > (currentPeak.fitness ?? -Infinity)) {
-        await writeFile(peakFile, JSON.stringify({ file: path.basename(file), fitness: bestFitness, generation }), "utf8")
-    }
+    summaries[path.basename(file)] = bestFitness
+    // Remove pruned entries
+    for (const f of toDelete) delete summaries[f]
+    await writeFile(summariesFile, JSON.stringify(summaries), "utf8")
 
     return { file, payload }
 }
 
 export const loadPeakCheckpoint = async (directory, ecosystem) => {
     try {
-        const meta = JSON.parse(await readFile(path.join(directory, "peak.json"), "utf8"))
-        const filePath = path.join(directory, meta.file)
-        // Fall back to latest if the referenced file was pruned
-        const exists = await readFile(filePath, "utf8").then(() => true).catch(() => false)
-        if (exists) {
-            const result = await loadLatestCheckpoint(directory, ecosystem, filePath)
-            return result ? { ...result, isPeak: true } : null
-        }
-    } catch {}
-    return loadLatestCheckpoint(directory, ecosystem)
+        const summaries = JSON.parse(await readFile(path.join(directory, "summaries.json"), "utf8"))
+        const entries = Object.entries(summaries)
+        if (!entries.length) return loadLatestCheckpoint(directory, ecosystem)
+        // Pick the file with the highest bestFitness among the current kept window
+        const [peakName] = entries.reduce((best, cur) => cur[1] > best[1] ? cur : best)
+        const peakPath = path.join(directory, peakName)
+        const result = await loadLatestCheckpoint(directory, ecosystem, peakPath)
+        return result ? { ...result, isPeak: true } : loadLatestCheckpoint(directory, ecosystem)
+    } catch {
+        return loadLatestCheckpoint(directory, ecosystem)
+    }
 }
 
 export const loadLatestCheckpoint = async (directory, ecosystem, overrideFile = null) => {
