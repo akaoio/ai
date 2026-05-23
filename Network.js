@@ -309,6 +309,19 @@ class Network {
 
     calculate(input = [], config = {}) {
         const options = typeof config === "number" ? { steps: config } : config
+
+        // Fast path: use pre-compiled Zig/WASM kernel when available.
+        // compile(wasm) must have been called after decode(); compile() is invalidated
+        // on any structural mutation (weight/bias changes don't require recompile).
+        if (this._compiled && this._wasm) {
+            if (options.reset !== false) this._wasm.neatReset()
+            this._wasm.neatLoad(this._compiled)
+            const steps = options.steps || this._compiled.steps
+            let output
+            for (let i = 0; i < steps; i++) output = this._wasm.neatStep(input)
+            return output
+        }
+
         const indexes = this.layerIndexes()
         if (options.reset !== false) this.clear({ history: true })
         const steps = options.steps || (this.hasRecurrentConnections(indexes) ? Math.max(this.recurrentSteps, this.maxDelay(indexes)) : 1)
@@ -317,8 +330,101 @@ class Network {
         return output
     }
 
-    activate(neuron, activator, precomputed) {
-        const input = precomputed !== undefined ? precomputed : neuron.input
+    // Compile this network into flat typed arrays for fast WASM inference.
+    // Call once after decode(); then pass the same wasm instance to every calculate() call.
+    // Only supports sigmoid-activated networks with ternary (BitNet) or real-valued weights.
+    // Assumptions: input neurons (layer 0) have no incoming connections and no activation.
+    compile(wasm) {
+        const layerIndexes = this.layerIndexes()
+        const maxDelay = this.maxDelay(layerIndexes)
+        const hasRecurrent = this.hasRecurrentConnections(layerIndexes)
+        const steps = hasRecurrent ? Math.max(this.recurrentSteps || 2, maxDelay) : 1
+        const historyDepth = Math.max(steps, maxDelay, 2)
+
+        // Map neuron id → linear index (position in this.neurons array)
+        const neuronToIdx = new Map()
+        this.neurons.forEach((n, i) => neuronToIdx.set(n.id, i))
+
+        // Build layer order and identify input/output neurons
+        const layerOrder = []
+        const outputIndices = []
+        let inputCount = 0
+        const lastLayerIdx = this.layers.length - 1
+
+        this.layers.forEach((layer, li) => {
+            layer.n.forEach(n => {
+                if (!n.s) return // skip inactive neurons
+                const idx = neuronToIdx.get(n.id)
+                if (idx === undefined) return
+                layerOrder.push(idx)
+                if (li === 0) inputCount++
+                if (li === lastLayerIdx) outputIndices.push(idx)
+            })
+        })
+
+        const N = this.neurons.length
+        const outputCount = outputIndices.length
+
+        // Collect active non-zero-weight connections
+        const connList = []
+        for (const c of this.connections) {
+            if (!c.s) continue
+            if (!c.from?.s || !c.to?.s) continue
+            const w = this.bn ? quantize(c.w) : Math.round(c.w)
+            if (w === 0) continue
+            const fromIdx = neuronToIdx.get(c.from.id)
+            const toIdx = neuronToIdx.get(c.to.id)
+            if (fromIdx === undefined || toIdx === undefined) continue
+            const isRecurrent = this.isRecurrentConnection(c, layerIndexes)
+            connList.push({
+                from: fromIdx,
+                to: toIdx,
+                weight: w,
+                timestep: isRecurrent ? Math.max(1, Math.round(c.t || 1)) : 0,
+            })
+        }
+
+        // Sort by target neuron for CSR layout
+        connList.sort((a, b) => a.to - b.to)
+
+        // Build CSR: csrStarts[i] = first connection index targeting neuron i
+        const csrStarts = new Int32Array(N + 1)
+        for (const c of connList) csrStarts[c.to + 1]++
+        for (let i = 1; i <= N; i++) csrStarts[i] += csrStarts[i - 1]
+
+        const connCount = connList.length
+        const connFrom = new Uint32Array(connCount)
+        const connWeight = new Int8Array(connCount)
+        const connTimestep = new Uint8Array(connCount)
+        const insertPos = csrStarts.slice(0, N)
+        for (const c of connList) {
+            const pos = insertPos[c.to]++
+            connFrom[pos] = c.from
+            connWeight[pos] = c.weight
+            connTimestep[pos] = c.timestep
+        }
+
+        const biases = new Float32Array(N)
+        for (let i = 0; i < N; i++) biases[i] = this.neurons[i].b ?? 0
+
+        this._compiled = {
+            neuronCount: N,
+            inputCount,
+            outputCount,
+            historyDepth,
+            steps,
+            layerOrder: new Uint32Array(layerOrder),
+            biases,
+            csrStarts,
+            connFrom,
+            connWeight,
+            connTimestep,
+            outputIndices: new Uint32Array(outputIndices),
+        }
+        this._wasm = wasm
+    }
+
+    activate(neuron, activator, precomputed) {        const input = precomputed !== undefined ? precomputed : neuron.input
         if (activator === false) return input
         return activators[activator || this.activator](input + neuron.bias)
     }

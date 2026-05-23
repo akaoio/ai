@@ -32,13 +32,22 @@ export const loadWasmKernels = async ({ source = wasmSource } = {}) => {
     const { exports } = module.instance
     const memory = exports.memory
 
-    const copyFloat32 = values => {
-        const typed = values instanceof Float32Array ? values : Float32Array.from(values)
+    const copyTyped = (Ctor, values) => {
+        const typed = values instanceof Ctor ? values : Ctor.from(values)
         const pointer = Number(exports.alloc(typed.byteLength))
         if (!pointer) throw new Error("WASM allocator ran out of memory")
-        new Float32Array(memory.buffer, pointer, typed.length).set(typed)
+        new Ctor(memory.buffer, pointer, typed.length).set(typed)
         return { pointer, length: typed.length }
     }
+
+    const copyFloat32 = v => copyTyped(Float32Array, v)
+    const copyUint32 = v => copyTyped(Uint32Array, v)
+    const copyInt32 = v => copyTyped(Int32Array, v)
+    const copyInt8 = v => copyTyped(Int8Array, v)
+    const copyUint8 = v => copyTyped(Uint8Array, v)
+
+    // Tracks output count set by the last neatLoad call
+    let _neatOc = 0
 
     return {
         dot(left = [], right = []) {
@@ -55,7 +64,39 @@ export const loadWasmKernels = async ({ source = wasmSource } = {}) => {
             const outputPointer = Number(exports.alloc(outputSize * Float32Array.BYTES_PER_ELEMENT))
             exports.dense_relu_f32(input.pointer, kernel.pointer, bias.pointer, outputPointer, inputSize, outputSize)
             return new Float32Array(memory.buffer.slice(outputPointer, outputPointer + outputSize * Float32Array.BYTES_PER_ELEMENT))
-        }
+        },
+
+        // Load a compiled NEAT network into static WASM buffers.
+        // All arrays must be pre-built by Network.compile(); this just copies them.
+        neatLoad({ neuronCount, inputCount, outputCount, historyDepth, layerOrder, biases, csrStarts, connFrom, connWeight, connTimestep, outputIndices }) {
+            _neatOc = outputCount
+            exports.reset_alloc()
+            const lo = copyUint32(layerOrder)
+            const b = copyFloat32(biases)
+            const cs = copyInt32(csrStarts)
+            const cf = copyUint32(connFrom)
+            const cw = copyInt8(connWeight)
+            const ct = copyUint8(connTimestep)
+            const oi = copyUint32(outputIndices)
+            exports.neat_load(neuronCount, layerOrder.length, inputCount, outputCount, historyDepth, connFrom.length, lo.pointer, b.pointer, cs.pointer, cf.pointer, cw.pointer, ct.pointer, oi.pointer)
+            exports.reset_alloc()
+        },
+
+        // Reset activation state and history (call before each new episode/hand).
+        neatReset() {
+            exports.neat_reset()
+        },
+
+        // Run one forward step and return output activations as a plain Array.
+        neatStep(inputs) {
+            exports.reset_alloc()
+            const inp = copyFloat32(inputs)
+            const outPtr = Number(exports.alloc(_neatOc * 4))
+            exports.neat_step(inp.pointer, outPtr)
+            const result = Array.from(new Float32Array(memory.buffer, outPtr, _neatOc))
+            exports.reset_alloc()
+            return result
+        },
     }
 }
 

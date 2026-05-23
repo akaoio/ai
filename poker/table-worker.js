@@ -4,17 +4,25 @@ import { workerData, parentPort } from "worker_threads"
 
 const { networks: serializedNetworks, tables, config } = workerData
 
-const [{ default: Network }, { default: PokerTable }, agentsModule] = await Promise.all([
+const [{ default: Network }, { default: PokerTable }, agentsModule, { loadWasmKernels }] = await Promise.all([
     import("../Network.js"),
     import("./Table.js"),
-    import("./agents.js")
+    import("./agents.js"),
+    import("../Wasm.js"),
 ])
 
 const { createNeatAgent, TightCallerAgent, HeuristicAgent } = agentsModule
 
+// Load WASM once per worker, compile all networks before playing any tables
+const wasm = await loadWasmKernels()
+
 // Decode all networks once — reused across all tables in this worker's batch
 const networkMap = new Map(
-    serializedNetworks.map(({ id, encoded }) => [id, new Network(encoded)])
+    serializedNetworks.map(({ id, encoded }) => {
+        const net = new Network(encoded)
+        net.compile(wasm)
+        return [id, net]
+    })
 )
 
 function makeAgent({ id, type, style }) {
