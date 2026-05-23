@@ -24,6 +24,7 @@ class PokerTable {
             folded: false,
             handsActive: 0,
             hole: [],
+            preflopFolds: 0,
             id: player.id || `player-${seat}`,
             seat,
             stack: player.stack ?? this.startingStack,
@@ -201,6 +202,7 @@ class PokerTable {
         const toCall = Math.max(0, state.currentBet - player.committedRound)
         if (action.type === "fold") {
             player.folded = true
+            if (state.stage === "preflop") player.preflopFolds++
             return { type: "fold" }
         }
         if (action.type === "check") return { type: "check" }
@@ -342,6 +344,7 @@ class PokerTable {
             chipsWon: player.stack - player.tableStartStack,
             handsActive: player.handsActive,
             id: player.id,
+            preflopFolds: player.preflopFolds,
             stack: player.stack
         }))
     }

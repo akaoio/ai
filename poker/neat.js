@@ -3,6 +3,7 @@ import path from "path"
 
 import PokerPlatform from "./Platform.js"
 import { createNeatAgent } from "./agents.js"
+import { detectExploits, buildCounterAgents } from "./exploit.js"
 import { random } from "../Utils.js"
 
 export const entrantsFromPopulation = (population = [], config = {}) =>
@@ -159,6 +160,17 @@ export const runNeatGeneration = async (ecosystem, config = {}) => {
     })
 
     if (config.autosave !== false) result.checkpoint = await saveCheckpoint(ecosystem, result, config.checkpoint || {})
+
+    // Exploit detection: analyze the champion's tendencies and surface counter-agent recommendations.
+    // exploitCheckInterval (default: every generation) controls how often the check runs.
+    // The caller can use result.exploitAnalysis and result.counterAgents to update the baseline pool.
+    const interval = config.exploitCheckInterval ?? 1
+    const generation = config.checkpoint?.generation ?? 0
+    if (interval > 0 && generation % interval === 0) {
+        result.exploitAnalysis = detectExploits(result.standings)
+        result.counterAgents = buildCounterAgents(result.exploitAnalysis)
+    }
+
     return result
 }
 

@@ -1,4 +1,6 @@
 import { evaluateFive, evaluateSeven } from "./evaluator.js"
+import { compareRanks } from "./evaluator.js"
+import { createDeck, shuffleDeck } from "./cards.js"
 import { randomFloat } from "../Utils.js"
 
 const RANK_ORDER = "23456789TJQKA"
@@ -347,4 +349,80 @@ export const createNeatAgent = (network, config = {}) => ({
     }
 })
 
-export default { RandomAgent, ScriptedAgent, HeuristicAgent, TightCallerAgent, createNeatAgent, encodeObservation, actionFromOutputs, currentHandStrength, preflopHandBucket }
+// Estimate hero's equity (win probability) against a single random opponent via Monte Carlo.
+// Samples rollouts random opponent hole pairs + remaining community cards and counts wins.
+// Used by createMonteCarloAgent for deploy-time expected-value action selection.
+//
+// hole:      hero's hole cards, e.g. ["Ah", "Kd"]
+// community: current board cards (0–5 known cards)
+// rollouts:  number of random samples (50 is fast and ~±7% accurate)
+export const computeEquity = (hole = [], community = [], rollouts = 50) => {
+    if (hole.length < 2) return 0.5
+    const known = [...hole, ...community].filter(Boolean)
+    const deck = shuffleDeck(createDeck().filter(c => !known.includes(c)))
+    const communityNeeded = 5 - community.length
+    let wins = 0
+    for (let i = 0; i < rollouts; i++) {
+        const sample = shuffleDeck([...deck])
+        const oppHole = [sample[0], sample[1]]
+        const board = [...community, ...sample.slice(2, 2 + communityNeeded)]
+        const heroResult = evaluateSeven([...hole, ...board])
+        const oppResult = evaluateSeven([...oppHole, ...board])
+        const cmp = compareRanks(heroResult, oppResult)
+        wins += cmp > 0 ? 1 : cmp === 0 ? 0.5 : 0
+    }
+    return wins / rollouts
+}
+
+// Monte Carlo rollout agent — wraps a trained NEAT network with deploy-time equity sampling.
+// For each legal action, computes expected value using hand equity from computeEquity():
+//
+//   EV(fold)       = 0
+//   EV(check/call) = equity × (pot + toCall) − toCall
+//   EV(raise_X)    = equity × (pot + X) − X  (assumes opponent calls; optimistic)
+//
+// The network is used to pick raise sizing when EV(raise) is best.
+// Use this for evaluation / deployment — not during NEAT training (adds latency).
+export const createMonteCarloAgent = (network, config = {}) => {
+    const rollouts = config.rollouts || 50
+    const neatAgent = createNeatAgent(network, config)
+    return {
+        id: config.id || "monte-carlo-agent",
+        act(context = {}) {
+            const legal = context.legalActions || []
+            if (!legal.length) return { type: "fold" }
+            if (legal.length === 1) return legal[0]
+
+            const equity = computeEquity(context.hole || [], context.community || [], rollouts)
+            const pot = Math.max(context.pot || 0, context.bigBlind || 1)
+            const toCall = context.toCall || 0
+
+            // EV for passive actions
+            const evPassive = toCall === 0
+                ? equity * pot                          // free check
+                : equity * (pot + toCall) - toCall      // call
+
+            // Use network for raise sizing
+            const netAction = neatAgent.act(context)
+            const raiseSpec = legal.find(a => a.type === "raise")
+            const raiseAmount = netAction.type === "raise" && netAction.amount != null
+                ? netAction.amount
+                : raiseSpec ? raiseSpec.min : pot
+
+            const evRaise = equity * (pot + raiseAmount) - raiseAmount
+
+            const candidates = []
+            for (const action of legal) {
+                if (action.type === "fold")   candidates.push({ action, ev: 0 })
+                else if (action.type === "check") candidates.push({ action, ev: evPassive })
+                else if (action.type === "call")  candidates.push({ action, ev: evPassive })
+                else if (action.type === "raise") candidates.push({ action: { ...action, amount: raiseAmount }, ev: evRaise })
+            }
+
+            candidates.sort((a, b) => b.ev - a.ev)
+            return candidates[0]?.action || { type: "fold" }
+        }
+    }
+}
+
+export default { RandomAgent, ScriptedAgent, HeuristicAgent, TightCallerAgent, createNeatAgent, createMonteCarloAgent, computeEquity, encodeObservation, actionFromOutputs, currentHandStrength, preflopHandBucket }

@@ -155,13 +155,13 @@ test("poker table resolves a deterministic showdown", () => {
     assert.ok(hero.stack > villain.stack)
 })
 
-test("poker platform aggregates chip deltas across generated tables", () => {
+test("poker platform aggregates chip deltas across generated tables", async () => {
     const platform = new PokerPlatform({ bigBlind: 2, handsPerTable: 1, replacement: false, smallBlind: 1, startingStack: 20, tableSize: 2 })
     const entrants = [
         { agent: new ScriptedAgent([{ type: "call" }, { type: "check" }, { type: "check" }, { type: "check" }]), id: "a" },
         { agent: new ScriptedAgent([{ type: "check" }, { type: "check" }, { type: "check" }, { type: "check" }]), id: "b" }
     ]
-    const result = platform.runGeneration(entrants, {
+    const result = await platform.runGeneration(entrants, {
         deckFactory: () => ["Kd", "Ah", "Kc", "Ad", "2s", "7d", "9h", "3c", "4d"],
         hands: 1,
         tableSize: 2,
@@ -443,4 +443,155 @@ test("generationCount is serialized and restored in NEAT checkpoints", () => {
     const payload = serializeCheckpoint(ecosystem, { standings: [] }, { generation: 1 })
     assert.equal(payload.population[0].generationCount, 5)
     assert.equal(payload.population[1].generationCount, 3)
+})
+
+// ─── Exploit Detection ───────────────────────────────────────────────────────
+
+import { detectExploits, buildCounterAgents } from "../poker/exploit.js"
+
+test("detectExploits identifies over-folding champion", () => {
+    const standings = [
+        { id: "genome-0", chipsWon: 100, handsActive: 50, allInRaises: 1, preflopFolds: 35 },
+        { id: "tight-caller-1", chipsWon: 80, handsActive: 50, allInRaises: 0, preflopFolds: 5 }
+    ]
+    const analysis = detectExploits(standings)
+    assert.ok(analysis.issues.some(i => i.type === "over-folding"), "should flag over-folding")
+    assert.ok(analysis.foldRate > 0.6)
+})
+
+test("detectExploits identifies over-shoving champion", () => {
+    const standings = [
+        { id: "genome-0", chipsWon: 50, handsActive: 40, allInRaises: 8, preflopFolds: 5 },
+        { id: "tight-caller-1", chipsWon: 80, handsActive: 40, allInRaises: 0, preflopFolds: 2 }
+    ]
+    const analysis = detectExploits(standings)
+    assert.ok(analysis.issues.some(i => i.type === "over-shoving"), "should flag over-shoving")
+    assert.ok(analysis.allInRate > 0.15)
+})
+
+test("detectExploits returns no issues for healthy champion", () => {
+    const standings = [
+        { id: "genome-0", chipsWon: 200, handsActive: 100, allInRaises: 5, preflopFolds: 30 }
+    ]
+    const analysis = detectExploits(standings)
+    assert.equal(analysis.issues.length, 0)
+})
+
+test("buildCounterAgents returns aggressive agent for over-folding", () => {
+    const analysis = { issues: [{ type: "over-folding" }] }
+    const agents = buildCounterAgents(analysis)
+    assert.equal(agents.length, 1)
+    assert.equal(agents[0].id, "counter-bluff-bot")
+    assert.ok(typeof agents[0].createAgent === "function")
+    const agent = agents[0].createAgent()
+    assert.ok(typeof agent.act === "function")
+})
+
+test("buildCounterAgents returns multiple agents for multiple issues", () => {
+    const analysis = { issues: [{ type: "over-folding" }, { type: "over-shoving" }] }
+    const agents = buildCounterAgents(analysis)
+    assert.equal(agents.length, 2)
+})
+
+test("preflopFolds are tracked in Table standings", () => {
+    // Player b (button/SB, acts first preflop) raises; player a (BB) folds.
+    // That gives player a a legal fold action and increments preflopFolds.
+    const table = new PokerTable({
+        bigBlind: 10, smallBlind: 5, startingStack: 200,
+        players: [
+            { id: "a", agent: new ScriptedAgent([{ type: "fold" }]) },
+            { id: "b", agent: new ScriptedAgent([{ type: "raise", amount: 30 }, { type: "call" }]) }
+        ]
+    })
+    table.playHand()
+    const standings = table.standings()
+    const aStats = standings.find(p => p.id === "a")
+    assert.equal(aStats.preflopFolds, 1)
+})
+
+// ─── Monte Carlo Equity ───────────────────────────────────────────────────────
+
+import { computeEquity, createMonteCarloAgent } from "../poker/agents.js"
+
+test("computeEquity returns ~1.0 for AA vs random hand", () => {
+    const equity = computeEquity(["Ah", "As"], [], 200)
+    // AA has ~85% equity vs random — well above 0.5
+    assert.ok(equity > 0.7, `expected > 0.7, got ${equity}`)
+})
+
+test("computeEquity returns ~0.0 for 72o on AKQ board vs range", () => {
+    // 7-2 offsuit on A-K-Q board: very low equity
+    const equity = computeEquity(["7h", "2d"], ["Ah", "Kd", "Qc"], 200)
+    assert.ok(equity < 0.3, `expected < 0.3, got ${equity}`)
+})
+
+test("computeEquity returns ~0.5 for unknown hole cards", () => {
+    const equity = computeEquity([], [], 100)
+    assert.equal(equity, 0.5)
+})
+
+test("createMonteCarloAgent folds with 72o facing large bet (pot odds unfavorable)", () => {
+    const ecosystem = new Ecosystem({ size: 1, recurrent: false })
+    ecosystem.seed({ layers: [OBSERVATION_SIZE, 0, 6], type: "neat" })
+    const network = ecosystem.population[0]
+    // Hardwire network to have very high fold output
+    network.connections.forEach(c => { c.weight = 0 })
+    const foldNeuron = network.neurons.find(n => n.kind === "output")
+    if (foldNeuron) {
+        const foldConn = network.connections.find(c => c.to.id === foldNeuron.id)
+        if (foldConn) foldConn.weight = 5
+    }
+
+    const agent = createMonteCarloAgent(network, { rollouts: 20 })
+    const context = {
+        hole: ["7h", "2d"], community: ["Ah", "Kd", "Qc"],
+        legalActions: [{ type: "fold" }, { type: "call", amount: 90 }],
+        pot: 10, toCall: 90, bigBlind: 10, stack: 100, startingStack: 200,
+        minRaiseTo: 100, maxRaiseTo: 100, stageRaises: 0
+    }
+    const action = agent.act(context)
+    // With 7-high on AKQ board vs large bet, fold should be highest EV
+    assert.equal(action.type, "fold")
+})
+
+// ─── Warmstart CFR ────────────────────────────────────────────────────────────
+
+import { runHeadsUpCFR, createCFRAgent } from "../poker/warmstart.js"
+
+test("runHeadsUpCFR produces a strategy for all hand buckets", () => {
+    const { averageStrategy, iterations } = runHeadsUpCFR({ iterations: 500 })
+    assert.equal(iterations, 500)
+    // Should have strategy entries
+    assert.ok(averageStrategy.size > 0, "strategy map should not be empty")
+    // Check at least one entry sums to ~1
+    const [, probs] = [...averageStrategy.entries()][0]
+    const total = probs.reduce((a, b) => a + b, 0)
+    assert.ok(Math.abs(total - 1) < 0.001, `probs should sum to 1, got ${total}`)
+})
+
+test("CFR strategy folds premium hands less than trash hands", () => {
+    const { averageStrategy } = runHeadsUpCFR({ iterations: 2000 })
+    // Premium hand (bucket 7, AA/KK/QQ): low fold probability
+    const premiumKey = "0:7:0:0"
+    // Trash hand (bucket 0): higher fold probability
+    const trashKey = "0:0:0:0"
+    const premiumProbs = averageStrategy.get(premiumKey)
+    const trashProbs = averageStrategy.get(trashKey)
+    if (premiumProbs && trashProbs) {
+        assert.ok(premiumProbs[0] < trashProbs[0], "premium hands should fold less than trash")
+    }
+})
+
+test("createCFRAgent produces valid actions", () => {
+    const { averageStrategy } = runHeadsUpCFR({ iterations: 200 })
+    const agent = createCFRAgent(averageStrategy, { id: "test-cfr" })
+    assert.equal(agent.id, "test-cfr")
+    const context = {
+        hole: ["Ah", "As"], community: [],
+        legalActions: [{ type: "call" }, { type: "raise", min: 20, max: 200 }],
+        pot: 15, bigBlind: 10, toCall: 5, stageRaises: 0,
+        minRaiseTo: 20, maxRaiseTo: 200
+    }
+    const action = agent.act(context)
+    assert.ok(["call", "raise"].includes(action.type), `unexpected action: ${action.type}`)
 })

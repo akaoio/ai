@@ -79,7 +79,7 @@ class PokerPlatform {
 
         // alive tracks who can still play — bust in any round = eliminated from future rounds
         const alive = new Set(entries.map(e => e.id))
-        const stats = new Map(entries.map(e => [e.id, { allInRaises: 0, busts: 0, chipsWon: 0, hands: 0, handsActive: 0, id: e.id, appearances: 0 }]))
+        const stats = new Map(entries.map(e => [e.id, { allInRaises: 0, busts: 0, chipsWon: 0, hands: 0, handsActive: 0, id: e.id, appearances: 0, preflopFolds: 0 }]))
 
         for (let round = 0; round < numRounds; round++) {
             const aliveEntries = entries.filter(e => alive.has(e.id))
@@ -122,6 +122,7 @@ class PokerPlatform {
                         item.hands += handsPerTable
                         item.handsActive += player.handsActive || 0
                         item.chipsWon += player.chipsWon  // round P&L accumulates
+                        item.preflopFolds += player.preflopFolds || 0
                         // Bust this round → eliminated from all future rounds
                         if (player.stack === 0) alive.delete(player.id)
                     }
