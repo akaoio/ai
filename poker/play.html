@@ -73,13 +73,15 @@ h1 { margin: 10px 0 4px; color: #ffd700; font-size: clamp(1em, 4vw, 1.4em); lett
 #log-wrap .entry.divider { color: #ffd700; font-style: italic; padding-top: 4px; }
 #log-wrap .entry.you { color: #8cf; }
 
-/* result overlay */
-#result-overlay { display: none; position: fixed; inset: 0; background: #000a; justify-content: center; align-items: center; z-index: 10; padding: 16px; }
+/* result overlay — bottom sheet, keeps table visible */
+#result-overlay { display: none; position: fixed; bottom: 0; left: 0; right: 0; background: linear-gradient(transparent 0%, #000c 18%); justify-content: center; align-items: flex-end; z-index: 10; }
 #result-overlay.visible { display: flex; }
-#result-box { background: #223; border: 2px solid #ffd700; border-radius: 14px; padding: clamp(16px, 5vw, 28px) clamp(20px, 6vw, 36px); text-align: center; max-width: min(400px, calc(100vw - 32px)); width: 100%; }
-#result-box h2 { color: #ffd700; font-size: clamp(1.1em, 4vw, 1.4em); margin-bottom: 10px; }
-#result-box .reveal { margin: 6px 0; font-size: clamp(.76em, 2.5vw, .85em); }
-#result-box button { margin-top: 16px; padding: 10px 24px; background: #ffd700; border: none; border-radius: 6px; font-size: clamp(.9em, 3vw, 1em); font-weight: bold; cursor: pointer; min-height: 44px; touch-action: manipulation; }
+#result-box { background: #1a2a3a; border: 2px solid #ffd700; border-bottom: none; border-top-left-radius: 14px; border-top-right-radius: 14px; padding: clamp(12px, 4vw, 20px) clamp(16px, 5vw, 28px) clamp(10px, 3vw, 16px); text-align: center; width: min(760px, 100vw); }
+#result-box h2 { color: #ffd700; font-size: clamp(1em, 3.5vw, 1.3em); margin-bottom: 8px; }
+#result-box .reveal { margin: 4px 0; font-size: clamp(.74em, 2.4vw, .83em); display: flex; align-items: center; justify-content: center; gap: 6px; flex-wrap: wrap; }
+#result-box .reveal .cards-inline { display: flex; gap: 3px; }
+#result-box .reveal .card { width: clamp(18px, 4.5vw, 26px); height: clamp(26px, 6.5vw, 38px); font-size: clamp(.5em, 1.6vw, .68em); }
+#result-box button { margin-top: 10px; padding: 9px 22px; background: #ffd700; border: none; border-radius: 6px; font-size: clamp(.88em, 3vw, 1em); font-weight: bold; cursor: pointer; min-height: 40px; touch-action: manipulation; }
 </style>
 </head>
 <body>

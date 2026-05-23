@@ -138,7 +138,7 @@ function render(state) {
         let body = `<div>Pot: ${r.winners?.[0]?.amount ?? state.pot}</div>`
         if (r.showdown && r.revealed) {
             body += r.revealed.map(rv =>
-                `<div class="reveal">${rv.id}: ${rv.hole.join(" ")} — ${rv.handLabel}</div>`
+                `<div class="reveal"><span>${rv.id}:</span><span class="cards-inline">${rv.hole.map(c => cardHTML(c)).join("")}</span><span>— ${rv.handLabel}</span></div>`
             ).join("")
         }
         document.getElementById("result-body").innerHTML = body
