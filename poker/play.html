@@ -11,15 +11,15 @@ h1 { margin: 12px 0 4px; color: #ffd700; font-size: clamp(1em, 4vw, 1.4em); lett
 #info-bar { font-size: clamp(.7em, 2.5vw, .8em); color: #aaa; margin-bottom: 8px; text-align: center; padding: 0 8px; }
 
 /* ── Table ── */
-#table-wrap { position: relative; width: min(760px, calc(100vw - 12px)); aspect-ratio: 760 / 420; margin: 0 auto; }
-#felt { width: 100%; height: 100%; background: radial-gradient(ellipse at center, #2d6a2d 60%, #1a4a1a 100%); border-radius: 50%; border: 6px solid #8b5e1a; box-shadow: 0 0 40px #000a; }
+#table-wrap { position: relative; width: min(760px, calc(100vw - 12px)); aspect-ratio: 16 / 9; margin: 0 auto; }
+#felt { width: 100%; height: 100%; background: radial-gradient(ellipse at center, #2d6a2d 55%, #1a4a1a 100%); border-radius: 16px; border: 5px solid #8b5e1a; box-shadow: 0 0 30px #000a, inset 0 0 20px #0005; }
 
 /* Community */
-#community { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -55%); display: flex; gap: clamp(3px, 1vw, 8px); }
-#pot-label { position: absolute; top: 58%; left: 50%; transform: translate(-50%, 0); font-size: clamp(.75em, 2.5vw, 1em); color: #ffd700; font-weight: bold; }
+#community { position: absolute; top: 43%; left: 50%; transform: translate(-50%, -50%); display: flex; gap: clamp(3px, 1vw, 8px); }
+#pot-label { position: absolute; top: 55%; left: 50%; transform: translate(-50%, 0); font-size: clamp(.75em, 2.5vw, 1em); color: #ffd700; font-weight: bold; }
 
-/* Seats — percentage-based so they scale with the table */
-.seat { position: absolute; text-align: center; width: clamp(70px, 14.5%, 110px); }
+/* Seats — 3 across top, 3 across bottom */
+.seat { position: absolute; text-align: center; width: clamp(70px, 28%, 110px); }
 .seat .pname { font-size: clamp(.6em, 1.8vw, .72em); font-weight: bold; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .seat .pstack { font-size: clamp(.58em, 1.6vw, .68em); color: #cfc; }
 .seat .pbet { font-size: clamp(.55em, 1.5vw, .62em); color: #ffc; min-height: 12px; }
@@ -64,13 +64,15 @@ h1 { margin: 12px 0 4px; color: #ffd700; font-size: clamp(1em, 4vw, 1.4em); lett
 #log-wrap .entry.divider { color: #ffd700; font-style: italic; padding-top: 4px; }
 #log-wrap .entry.you { color: #8cf; }
 
-/* ── Seat positions — percentages of 760×420 parent ── */
-#s0 { bottom: 2.9%; left: 50%; transform: translateX(-50%); }   /* bottom center = human */
-#s1 { bottom: 19%;  left: 10.5%; }
-#s2 { top: 23.8%;   left: 3.9%; }
-#s3 { top: 4.8%;    left: 50%; transform: translateX(-50%); }
-#s4 { top: 23.8%;   right: 3.9%; }
-#s5 { bottom: 19%;  right: 10.5%; }
+/* ── Seat positions: 3 top row, 3 bottom row ── */
+/* top row: s2 left · s3 center · s4 right */
+#s2 { top: 4%; left:  4%; }
+#s3 { top: 4%; left: 50%; transform: translateX(-50%); }
+#s4 { top: 4%; right: 4%; }
+/* bottom row: s1 left · s0 center (human) · s5 right */
+#s1 { bottom: 4%; left:  4%; }
+#s0 { bottom: 4%; left: 50%; transform: translateX(-50%); }
+#s5 { bottom: 4%; right: 4%; }
 
 /* result overlay */
 #result-overlay { display: none; position: fixed; inset: 0; background: #000a; justify-content: center; align-items: center; z-index: 10; padding: 16px; }
@@ -84,7 +86,6 @@ h1 { margin: 12px 0 4px; color: #ffd700; font-size: clamp(1em, 4vw, 1.4em); lett
 @media (max-width: 480px) {
     #controls { gap: 6px; padding: 8px; }
     #controls button { font-size: .82em; padding: 10px 8px; }
-    .seat { width: clamp(56px, 18%, 80px); }
     #community { gap: 3px; }
 }
 </style>
