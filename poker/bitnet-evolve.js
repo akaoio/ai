@@ -52,7 +52,7 @@ const platform = new PokerPlatform({
 const endGeneration = startGeneration + generations - 1
 const rangeLabel = isFinite(endGeneration) ? `gen ${startGeneration}→${endGeneration}` : `gen ${startGeneration}→∞`
 console.log(`BitNet NEAT Poker — ${rangeLabel} | pop=${ecosystem.size}`)
-console.log(`Platform: ${platform.tableSize} seats × ${HANDS_PER_TABLE} hands/table | BB=${BIG_BLIND}`)
+console.log(`Platform: ${platform.tableSize} seats × ${HANDS_PER_TABLE} hands/table × 15 rounds = ${HANDS_PER_TABLE * 15} hands/genome | BB=${BIG_BLIND}`)
 console.log("─".repeat(70))
 
 const t0 = Date.now()
@@ -64,13 +64,14 @@ for (let generation = startGeneration; generation <= endGeneration; generation++
     let result
     result = await runNeatGeneration(ecosystem, {
         bigBlind: BIG_BLIND,
-        // EMA smoothing: blend 55% new measurement + 45% previous fitness each generation.
-        // Poker evaluation has very high variance (~50-100 BB/100 std dev per 1000 hands).
-        // Smoothing lets elites accumulate statistical evidence across generations so the
-        // "best" metric trends upward instead of thrashing from luck alone.
+        // EMA smoothing: blend 25% new measurement + 75% previous fitness each generation.
+        // Poker evaluation has very high variance (~50-100 BB/100 std dev per 1500 hands).
+        // alpha=0.25 means veterans accumulate 4 generations of evidence before a single
+        // lucky result can displace them; alpha=0.55 was too high — fresh offspring with
+        // one lucky raw score could out-rank proven elites.
         // Only genomes that survived a prior generation carry _previousFitness; fresh
         // children (newly born this generation) always receive their raw score.
-        fitnessSmoothing: 0.55,
+        fitnessSmoothing: 0.25,
         baseline: [
             { id: "tight-caller-1", createAgent: () => new TightCallerAgent({ id: "tight-caller-1" }) },
             { id: "tight-caller-2", createAgent: () => new TightCallerAgent({ id: "tight-caller-2" }) },
@@ -90,7 +91,7 @@ for (let generation = startGeneration; generation <= endGeneration; generation++
             return bb100 - allInPenalty
         },
         checkpoint: { directory: CHECKPOINT_DIR, generation },
-        generation: { hands: HANDS_PER_TABLE, rounds: 10, tableSize: 8, tables: 100 },
+        generation: { hands: HANDS_PER_TABLE, rounds: 15, tableSize: 8, tables: 100 },
         platform
     })
 
@@ -112,6 +113,7 @@ for (let generation = startGeneration; generation <= endGeneration; generation++
     console.log(
         `Gen ${String(generation).padStart(3)} | ` +
         `best=${best?.fitness?.toFixed(2) ?? 0} BB/100 | ` +
+        `peak=${overallBest?.fitness?.toFixed(2) ?? 0} BB/100 | ` +
         `avg=${avgFitness.toFixed(2)} | ` +
         `species=${speciesCount} | ` +
         `neurons avg=${avgNeurons} max=${maxNeurons} | ` +
