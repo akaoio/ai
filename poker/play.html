@@ -2,54 +2,55 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
 <title>🃏 Poker vs AI</title>
 <style>
 * { box-sizing: border-box; margin: 0; padding: 0 }
 body { background: #1a2a1a; color: #e0e0e0; font-family: 'Segoe UI', sans-serif; min-height: 100vh; display: flex; flex-direction: column; align-items: center; }
-h1 { margin: 16px 0 6px; color: #ffd700; font-size: 1.4em; letter-spacing: 2px; }
-#info-bar { font-size: .8em; color: #aaa; margin-bottom: 10px; }
+h1 { margin: 12px 0 4px; color: #ffd700; font-size: clamp(1em, 4vw, 1.4em); letter-spacing: 2px; }
+#info-bar { font-size: clamp(.7em, 2.5vw, .8em); color: #aaa; margin-bottom: 8px; text-align: center; padding: 0 8px; }
 
 /* ── Table ── */
-#table-wrap { position: relative; width: 760px; height: 420px; margin: 0 auto; }
+#table-wrap { position: relative; width: min(760px, calc(100vw - 12px)); aspect-ratio: 760 / 420; margin: 0 auto; }
 #felt { width: 100%; height: 100%; background: radial-gradient(ellipse at center, #2d6a2d 60%, #1a4a1a 100%); border-radius: 50%; border: 6px solid #8b5e1a; box-shadow: 0 0 40px #000a; }
 
 /* Community */
-#community { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -55%); display: flex; gap: 8px; }
-#pot-label { position: absolute; top: 58%; left: 50%; transform: translate(-50%, 0); font-size: 1em; color: #ffd700; font-weight: bold; }
+#community { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -55%); display: flex; gap: clamp(3px, 1vw, 8px); }
+#pot-label { position: absolute; top: 58%; left: 50%; transform: translate(-50%, 0); font-size: clamp(.75em, 2.5vw, 1em); color: #ffd700; font-weight: bold; }
 
-/* Seats */
-.seat { position: absolute; text-align: center; width: 110px; }
-.seat .pname { font-size: .72em; font-weight: bold; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.seat .pstack { font-size: .68em; color: #cfc; }
-.seat .pbet { font-size: .62em; color: #ffc; min-height: 14px; }
-.seat .cards { display: flex; gap: 3px; justify-content: center; margin-top: 2px; }
+/* Seats — percentage-based so they scale with the table */
+.seat { position: absolute; text-align: center; width: clamp(70px, 14.5%, 110px); }
+.seat .pname { font-size: clamp(.6em, 1.8vw, .72em); font-weight: bold; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.seat .pstack { font-size: clamp(.58em, 1.6vw, .68em); color: #cfc; }
+.seat .pbet { font-size: clamp(.55em, 1.5vw, .62em); color: #ffc; min-height: 12px; }
+.seat .cards { display: flex; gap: 2px; justify-content: center; margin-top: 2px; }
 .seat.active .pname { color: #ff0; text-shadow: 0 0 6px #ff0; }
 .seat.folded { opacity: .35; }
 .seat.dealer .pname::before { content: "🔘 "; }
 .seat.you .pname { color: #8cf; }
 
 /* Cards */
-.card { width: 32px; height: 46px; border-radius: 4px; background: #fffde7; color: #222; display: flex; align-items: center; justify-content: center; font-size: .75em; font-weight: bold; border: 1px solid #bbb; line-height: 1; flex-direction: column; }
+.card { width: clamp(22px, 4.2vw, 32px); height: clamp(31px, 6vw, 46px); border-radius: 3px; background: #fffde7; color: #222; display: flex; align-items: center; justify-content: center; font-size: clamp(.55em, 1.8vw, .75em); font-weight: bold; border: 1px solid #bbb; line-height: 1; flex-direction: column; }
 .card.red { color: #c00; }
 .card.back { background: #2244aa; color: #fff; font-size: 1em; }
-.card.community-card { width: 44px; height: 62px; font-size: .95em; }
+.card.community-card { width: clamp(30px, 5.8vw, 44px); height: clamp(42px, 8.2vw, 62px); font-size: clamp(.7em, 2.5vw, .95em); }
 
 /* ── Controls ── */
-#controls { margin: 12px auto; width: 760px; background: #111; border-radius: 10px; padding: 12px 16px; display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
-#controls button { padding: 8px 18px; border-radius: 6px; border: none; font-size: .9em; cursor: pointer; font-weight: bold; transition: opacity .15s; }
+#controls { margin: 8px auto; width: min(760px, calc(100vw - 12px)); background: #111; border-radius: 10px; padding: 10px 12px; display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+#controls button { padding: 10px clamp(10px, 2.5vw, 18px); border-radius: 6px; border: none; font-size: clamp(.8em, 2.8vw, .9em); cursor: pointer; font-weight: bold; transition: opacity .15s; min-height: 44px; touch-action: manipulation; flex: 1 1 auto; }
 #controls button:disabled { opacity: .3; cursor: not-allowed; }
 #btn-fold { background: #922; color: #fff; }
 #btn-check { background: #494; color: #fff; }
 #btn-call { background: #226; color: #fff; }
 #btn-raise { background: #854; color: #fff; }
 #btn-allin { background: #722; color: #ffd700; font-weight: bold; border: 1px solid #ffd70066; }
-#raise-amount { width: 80px; padding: 6px 8px; border-radius: 5px; border: 1px solid #555; background: #222; color: #eee; font-size: .9em; }
-#raise-hint { font-size: .75em; color: #aaa; }
-#btn-new { background: #555; color: #fff; margin-left: auto; }
-#action-status { font-size: .82em; color: #fa8; font-style: italic; }
+#raise-amount { width: clamp(70px, 15vw, 90px); padding: 8px; border-radius: 5px; border: 1px solid #555; background: #222; color: #eee; font-size: clamp(.8em, 2.8vw, .9em); min-height: 44px; touch-action: manipulation; }
+#raise-hint { font-size: clamp(.68em, 2vw, .75em); color: #aaa; }
+#btn-new { background: #555; color: #fff; flex: 0 0 auto; }
+#action-status { font-size: clamp(.75em, 2.5vw, .82em); color: #fa8; font-style: italic; width: 100%; order: 99; }
 
 /* Action badges on seats */
-.paction { display: inline-block; margin: 2px auto; padding: 1px 6px; border-radius: 8px; font-size: .65em; font-weight: bold; }
+.paction { display: inline-block; margin: 2px auto; padding: 1px 5px; border-radius: 8px; font-size: clamp(.55em, 1.5vw, .65em); font-weight: bold; }
 .act-fold { background: #611; color: #faa; }
 .act-check { background: #163; color: #afa; }
 .act-call { background: #124; color: #acf; }
@@ -58,26 +59,34 @@ h1 { margin: 16px 0 6px; color: #ffd700; font-size: 1.4em; letter-spacing: 2px; 
 @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.6} }
 
 /* ── Log ── */
-#log-wrap { margin: 0 auto 20px; width: 760px; background: #111; border-radius: 10px; padding: 8px 12px; max-height: 150px; overflow-y: auto; }
-#log-wrap .entry { font-size: .78em; padding: 2px 0; border-bottom: 1px solid #222; }
+#log-wrap { margin: 0 auto 16px; width: min(760px, calc(100vw - 12px)); background: #111; border-radius: 10px; padding: 8px 12px; max-height: 130px; overflow-y: auto; }
+#log-wrap .entry { font-size: clamp(.7em, 2.2vw, .78em); padding: 2px 0; border-bottom: 1px solid #222; }
 #log-wrap .entry.divider { color: #ffd700; font-style: italic; padding-top: 4px; }
 #log-wrap .entry.you { color: #8cf; }
 
-/* ── Seat positions around ellipse ── */
-#s0 { bottom: 12px; left: 50%; transform: translateX(-50%); }   /* bottom center = human */
-#s1 { bottom: 80px; left: 80px; }
-#s2 { top: 100px; left: 30px; }
-#s3 { top: 20px; left: 50%; transform: translateX(-50%); }
-#s4 { top: 100px; right: 30px; }
-#s5 { bottom: 80px; right: 80px; }
+/* ── Seat positions — percentages of 760×420 parent ── */
+#s0 { bottom: 2.9%; left: 50%; transform: translateX(-50%); }   /* bottom center = human */
+#s1 { bottom: 19%;  left: 10.5%; }
+#s2 { top: 23.8%;   left: 3.9%; }
+#s3 { top: 4.8%;    left: 50%; transform: translateX(-50%); }
+#s4 { top: 23.8%;   right: 3.9%; }
+#s5 { bottom: 19%;  right: 10.5%; }
 
 /* result overlay */
-#result-overlay { display: none; position: fixed; inset: 0; background: #000a; justify-content: center; align-items: center; z-index: 10; }
+#result-overlay { display: none; position: fixed; inset: 0; background: #000a; justify-content: center; align-items: center; z-index: 10; padding: 16px; }
 #result-overlay.visible { display: flex; }
-#result-box { background: #223; border: 2px solid #ffd700; border-radius: 14px; padding: 28px 36px; text-align: center; max-width: 400px; }
-#result-box h2 { color: #ffd700; font-size: 1.4em; margin-bottom: 10px; }
-#result-box .reveal { margin: 6px 0; font-size: .85em; }
-#result-box button { margin-top: 16px; padding: 8px 24px; background: #ffd700; border: none; border-radius: 6px; font-size: 1em; font-weight: bold; cursor: pointer; }
+#result-box { background: #223; border: 2px solid #ffd700; border-radius: 14px; padding: clamp(16px, 5vw, 28px) clamp(20px, 6vw, 36px); text-align: center; max-width: min(400px, calc(100vw - 32px)); width: 100%; }
+#result-box h2 { color: #ffd700; font-size: clamp(1.1em, 4vw, 1.4em); margin-bottom: 10px; }
+#result-box .reveal { margin: 6px 0; font-size: clamp(.78em, 2.5vw, .85em); }
+#result-box button { margin-top: 16px; padding: 10px 24px; background: #ffd700; border: none; border-radius: 6px; font-size: clamp(.9em, 3vw, 1em); font-weight: bold; cursor: pointer; min-height: 44px; touch-action: manipulation; }
+
+/* ── Small screen tweaks ── */
+@media (max-width: 480px) {
+    #controls { gap: 6px; padding: 8px; }
+    #controls button { font-size: .82em; padding: 10px 8px; }
+    .seat { width: clamp(56px, 18%, 80px); }
+    #community { gap: 3px; }
+}
 </style>
 </head>
 <body>
