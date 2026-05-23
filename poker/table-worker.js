@@ -1,8 +1,6 @@
-// Worker thread: runs a batch of poker table simulations in parallel.
-// Receives serialized networks + table specs via workerData, returns standings.
-import { workerData, parentPort } from "worker_threads"
-
-const { networks: serializedNetworks, tables, config } = workerData
+// Persistent worker thread — stays alive across rounds and generations.
+// Protocol: receive { type: "load"|"run", id, ... }, reply with { id, data?, error? }.
+import { parentPort } from "worker_threads"
 
 const [{ default: Network }, { default: PokerTable }, agentsModule, { loadWasmKernels }] = await Promise.all([
     import("../Network.js"),
@@ -13,17 +11,9 @@ const [{ default: Network }, { default: PokerTable }, agentsModule, { loadWasmKe
 
 const { createNeatAgent, TightCallerAgent, HeuristicAgent } = agentsModule
 
-// Load WASM once per worker, compile all networks before playing any tables
+// Initialize WASM once — persists for the lifetime of this worker
 const wasm = await loadWasmKernels()
-
-// Decode all networks once — reused across all tables in this worker's batch
-const networkMap = new Map(
-    serializedNetworks.map(({ id, encoded }) => {
-        const net = new Network(encoded)
-        net.compile(wasm)
-        return [id, net]
-    })
-)
+let networkMap = new Map()
 
 function makeAgent({ id, type, style }) {
     if (type === "neat") {
@@ -34,11 +24,28 @@ function makeAgent({ id, type, style }) {
     return new TightCallerAgent({ id })
 }
 
-const results = tables.map(({ players }) => {
-    const instances = players.map(spec => ({ id: spec.id, agent: makeAgent(spec), stack: spec.stack }))
-    const table = new PokerTable({ ...config, players: instances })
-    table.playHands(config.hands || 100)
-    return table.standings()
+parentPort.on("message", ({ id, type, networks, tables, config }) => {
+    try {
+        if (type === "load") {
+            // Decode and WASM-compile all networks for this generation (once per gen, not per round)
+            networkMap = new Map(
+                networks.map(({ id: netId, encoded }) => {
+                    const net = new Network(encoded)
+                    net.compile(wasm)
+                    return [netId, net]
+                })
+            )
+            parentPort.postMessage({ id })
+        } else if (type === "run") {
+            const results = tables.map(({ players }) => {
+                const instances = players.map(spec => ({ id: spec.id, agent: makeAgent(spec), stack: spec.stack }))
+                const table = new PokerTable({ ...config, players: instances })
+                table.playHands(config.hands || 100)
+                return table.standings()
+            })
+            parentPort.postMessage({ id, data: results })
+        }
+    } catch (e) {
+        parentPort.postMessage({ id, error: e.message })
+    }
 })
-
-parentPort.postMessage(results)

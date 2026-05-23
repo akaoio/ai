@@ -13,16 +13,20 @@ async function startNewGame() {
     const { InteractiveGame, HumanAgent } = await import("./poker/InteractiveGame.js")
     const { createNeatAgent } = await import("./poker/agents.js")
     const { loadLatestCheckpoint } = await import("./poker/neat.js")
+    const { loadWasmKernels } = await import("./Wasm.js")
     const Ecosystem = (await import("./Ecosystem.js")).default
 
     // Load best genome from latest checkpoint
     const ecosystem = new Ecosystem({ bitnet: true, size: 20 })
     const resumed = await loadLatestCheckpoint("poker/checkpoints/bitnet", ecosystem)
-    const bestNetwork = ecosystem.best() || ecosystem.population[0]
 
     // Load top 4 genomes from latest checkpoint — all opponents are evolved AI
     const sortedPop = [...ecosystem.population].sort((a, b) => (b.fitness ?? -Infinity) - (a.fitness ?? -Infinity))
     const gen = resumed?.generation ?? 0
+
+    // Compile AI networks with WASM for fast inference (68x speedup over pure JS)
+    const wasm = await loadWasmKernels()
+    sortedPop.slice(0, 4).forEach(net => net.compile(wasm))
 
     const humanAgent = new HumanAgent()
     const players = [

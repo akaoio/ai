@@ -7,6 +7,8 @@ const WORKER_URL = new URL("./table-worker.js", import.meta.url)
 // Reserve 2 threads for OS + main; cap at 14 to avoid memory pressure
 const NUM_WORKERS = Math.max(1, Math.min(availableParallelism() - 2, 14))
 
+let _nextMsgId = 0
+
 class PokerPlatform {
     constructor(config = {}) {
         this.tableSize = config.tableSize || 8
@@ -15,6 +17,29 @@ class PokerPlatform {
         this.smallBlind = config.smallBlind || 5
         this.bigBlind = config.bigBlind || 10
         this.replacement = typeof config.replacement !== "undefined" ? config.replacement : true
+    }
+
+    // Send a request to a worker and resolve with its response.
+    // Uses a message id so concurrent sends to different workers stay unambiguous.
+    _send(worker, payload) {
+        const id = ++_nextMsgId
+        return new Promise((resolve, reject) => {
+            const onMsg = (msg) => {
+                if (msg.id !== id) return
+                worker.off("message", onMsg)
+                worker.off("error", onErr)
+                if (msg.error) reject(new Error(msg.error))
+                else resolve(msg.data)
+            }
+            const onErr = (err) => {
+                worker.off("message", onMsg)
+                worker.off("error", onErr)
+                reject(err)
+            }
+            worker.on("message", onMsg)
+            worker.on("error", onErr)
+            worker.postMessage({ ...payload, id })
+        })
     }
 
     instantiate(entry) {
@@ -64,7 +89,6 @@ class PokerPlatform {
         const tablesPerRound = Math.ceil(numTables / numRounds)
 
         // maxHands: total hands an agent can play if it never busts (used for fitness normalization)
-        // Agents that bust early accumulate 0 chips for skipped rounds — natural punishment
         const maxHands = numRounds * handsPerTable
 
         const neatEntries = entries.filter(e => e.network)
@@ -77,65 +101,75 @@ class PokerPlatform {
             startingStack
         }
 
-        // alive tracks who can still play — bust in any round = eliminated from future rounds
-        const alive = new Set(entries.map(e => e.id))
-        const stats = new Map(entries.map(e => [e.id, { allInRaises: 0, busts: 0, chipsWon: 0, hands: 0, handsActive: 0, id: e.id, appearances: 0, preflopFolds: 0 }]))
+        // Spawn workers once per generation — reused across all rounds, terminated after.
+        // Old design: NEW worker per round chunk (8 rounds × 3 workers = 24 spawns/gen).
+        // New design: 3 spawns/gen. Workers buffer the "load" message during their async
+        // startup and process it once their listener is registered — no race condition.
+        const numWorkers = Math.min(NUM_WORKERS, Math.max(1, tablesPerRound))
+        const workers = Array.from({ length: numWorkers }, () => new Worker(WORKER_URL))
 
-        for (let round = 0; round < numRounds; round++) {
-            const aliveEntries = entries.filter(e => alive.has(e.id))
-            if (aliveEntries.length < 2) break
+        try {
+            await Promise.all(workers.map(w => this._send(w, { type: "load", networks: serializedNetworks })))
 
-            // Shuffle alive agents and assign to tables — each agent at most once per round
-            const shuffled = [...aliveEntries].sort(() => Math.random() - 0.5)
-            const tableAssignments = []
-            for (let i = 0; i < shuffled.length && tableAssignments.length < tablesPerRound; i += tableSize) {
-                const players = shuffled.slice(i, i + tableSize)
-                if (players.length >= 2) tableAssignments.push(players)
-            }
-            if (!tableAssignments.length) break
+            // alive tracks who can still play — bust in any round = eliminated from future rounds
+            const alive = new Set(entries.map(e => e.id))
+            const stats = new Map(entries.map(e => [e.id, { allInRaises: 0, busts: 0, chipsWon: 0, hands: 0, handsActive: 0, id: e.id, appearances: 0, preflopFolds: 0 }]))
 
-            // Every alive agent starts this round with a FRESH stack — but if they bust, they're out
-            const workerTables = tableAssignments.map(te => ({
-                players: te.map(e => ({ ...this._agentSpec(e), stack: startingStack }))
-            }))
+            for (let round = 0; round < numRounds; round++) {
+                const aliveEntries = entries.filter(e => alive.has(e.id))
+                if (aliveEntries.length < 2) break
 
-            const numWorkers = Math.min(NUM_WORKERS, tableAssignments.length)
-            const chunkSize = Math.ceil(tableAssignments.length / numWorkers)
-            const chunks = []
-            for (let i = 0; i < workerTables.length; i += chunkSize) chunks.push(workerTables.slice(i, i + chunkSize))
+                // Shuffle alive agents and assign to tables — each agent at most once per round
+                const shuffled = [...aliveEntries].sort(() => Math.random() - 0.5)
+                const tableAssignments = []
+                for (let i = 0; i < shuffled.length && tableAssignments.length < tablesPerRound; i += tableSize) {
+                    const players = shuffled.slice(i, i + tableSize)
+                    if (players.length >= 2) tableAssignments.push(players)
+                }
+                if (!tableAssignments.length) break
 
-            const workerResults = await Promise.all(chunks.map(chunk => new Promise((resolve, reject) => {
-                const w = new Worker(WORKER_URL, { workerData: { networks: serializedNetworks, tables: chunk, config: tableConfig } })
-                w.once("message", resolve)
-                w.once("error", reject)
-                w.once("exit", code => { if (code !== 0) reject(new Error(`Worker exited: ${code}`)) })
-            })))
+                const workerTables = tableAssignments.map(te => ({
+                    players: te.map(e => ({ ...this._agentSpec(e), stack: startingStack }))
+                }))
 
-            for (const chunkResult of workerResults) {
-                for (const tableStandings of chunkResult) {
-                    for (const player of tableStandings) {
-                        const item = stats.get(player.id)
-                        if (!item) continue
-                        item.appearances++
-                        item.allInRaises += player.allInRaises || 0
-                        item.busts += player.busts || 0
-                        item.hands += handsPerTable
-                        item.handsActive += player.handsActive || 0
-                        item.chipsWon += player.chipsWon  // round P&L accumulates
-                        item.preflopFolds += player.preflopFolds || 0
-                        // Bust this round → eliminated from all future rounds
-                        if (player.stack === 0) alive.delete(player.id)
+                // Distribute table chunks across the generation's worker pool
+                const numChunks = Math.min(workers.length, workerTables.length)
+                const chunkSize = Math.ceil(workerTables.length / numChunks)
+                const chunks = []
+                for (let i = 0; i < workerTables.length; i += chunkSize) chunks.push(workerTables.slice(i, i + chunkSize))
+
+                const workerResults = await Promise.all(
+                    chunks.map((chunk, i) => this._send(workers[i], { type: "run", tables: chunk, config: tableConfig }))
+                )
+
+                for (const chunkResult of workerResults) {
+                    for (const tableStandings of chunkResult) {
+                        for (const player of tableStandings) {
+                            const item = stats.get(player.id)
+                            if (!item) continue
+                            item.appearances++
+                            item.allInRaises += player.allInRaises || 0
+                            item.busts += player.busts || 0
+                            item.hands += handsPerTable
+                            item.handsActive += player.handsActive || 0
+                            item.chipsWon += player.chipsWon
+                            item.preflopFolds += player.preflopFolds || 0
+                            if (player.stack === 0) alive.delete(player.id)
+                        }
                     }
                 }
             }
+
+            const standings = [...stats.values()].map(item => ({
+                ...item,
+                maxHands
+            })).sort((a, b) => b.chipsWon - a.chipsWon)
+
+            return { standings }
+        } finally {
+            // Always terminate workers — keeps tests clean and prevents resource leaks
+            workers.forEach(w => w.terminate())
         }
-
-        const standings = [...stats.values()].map(item => ({
-            ...item,
-            maxHands  // constant; busting early = missed positive earning rounds → naturally negative
-        })).sort((a, b) => b.chipsWon - a.chipsWon)
-
-        return { standings }
     }
 }
 

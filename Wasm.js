@@ -48,6 +48,8 @@ export const loadWasmKernels = async ({ source = wasmSource } = {}) => {
 
     // Tracks output count set by the last neatLoad call
     let _neatOc = 0
+    // Reference cache — skip the ~200KB copy when the same compiled topology is reused
+    let _lastLoaded = null
 
     return {
         dot(left = [], right = []) {
@@ -68,7 +70,9 @@ export const loadWasmKernels = async ({ source = wasmSource } = {}) => {
 
         // Load a compiled NEAT network into static WASM buffers.
         // All arrays must be pre-built by Network.compile(); this just copies them.
-        neatLoad({ neuronCount, inputCount, outputCount, historyDepth, layerOrder, biases, csrStarts, connFrom, connWeight, connTimestep, outputIndices }) {
+        neatLoad({ neuronCount, inputCount, outputCount, historyDepth, layerOrder, biases, csrStarts, connFrom, connWeight, connTimestep, outputIndices } = {}) {
+            if (arguments[0] === _lastLoaded) return
+            _lastLoaded = arguments[0]
             _neatOc = outputCount
             exports.reset_alloc()
             const lo = copyUint32(layerOrder)
