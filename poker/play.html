@@ -20,7 +20,8 @@ h1 { margin: 10px 0 4px; color: #ffd700; font-size: clamp(1em, 4vw, 1.4em); lett
 
 /* Seat box */
 .seat { flex: 1 1 0; min-width: 0; background: #1c3a1c; border: 1px solid #2d5a2d; border-radius: 8px; padding: 5px 4px; text-align: center; transition: border-color .2s; }
-.seat.active { border-color: #ff0; box-shadow: 0 0 6px #ff06; }
+.seat.active { border-color: #ff0; box-shadow: 0 0 10px #ff08; animation: seat-pulse 0.9s ease-in-out infinite; }
+@keyframes seat-pulse { 0%,100% { box-shadow: 0 0 6px #ff06; border-color: #ff0; } 50% { box-shadow: 0 0 18px #ff0c; border-color: #ffe066; } }
 .seat.folded { opacity: .38; }
 .seat.you { border-color: #4488cc; background: #152535; }
 .seat .pname { font-size: clamp(.65em, 2.2vw, .78em); font-weight: bold; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -74,14 +75,17 @@ h1 { margin: 10px 0 4px; color: #ffd700; font-size: clamp(1em, 4vw, 1.4em); lett
 #log-wrap .entry.you { color: #8cf; }
 
 /* result overlay — bottom sheet, keeps table visible */
-#result-overlay { display: none; position: fixed; bottom: 0; left: 0; right: 0; background: linear-gradient(transparent 0%, #000c 18%); justify-content: center; align-items: flex-end; z-index: 10; }
+#result-overlay { display: none; position: fixed; bottom: 0; left: 0; right: 0; z-index: 10; justify-content: center; align-items: flex-end; }
 #result-overlay.visible { display: flex; }
-#result-box { background: #1a2a3a; border: 2px solid #ffd700; border-bottom: none; border-top-left-radius: 14px; border-top-right-radius: 14px; padding: clamp(12px, 4vw, 20px) clamp(16px, 5vw, 28px) clamp(10px, 3vw, 16px); text-align: center; width: min(760px, 100vw); }
-#result-box h2 { color: #ffd700; font-size: clamp(1em, 3.5vw, 1.3em); margin-bottom: 8px; }
-#result-box .reveal { margin: 4px 0; font-size: clamp(.74em, 2.4vw, .83em); display: flex; align-items: center; justify-content: center; gap: 6px; flex-wrap: wrap; }
-#result-box .reveal .cards-inline { display: flex; gap: 3px; }
-#result-box .reveal .card { width: clamp(18px, 4.5vw, 26px); height: clamp(26px, 6.5vw, 38px); font-size: clamp(.5em, 1.6vw, .68em); }
-#result-box button { margin-top: 10px; padding: 9px 22px; background: #ffd700; border: none; border-radius: 6px; font-size: clamp(.88em, 3vw, 1em); font-weight: bold; cursor: pointer; min-height: 40px; touch-action: manipulation; }
+#result-box { background: #111e2e; border: 1.5px solid #ffd700; border-bottom: none; border-top-left-radius: 10px; border-top-right-radius: 10px; padding: 8px 14px 10px; width: min(760px, 100vw); display: flex; flex-wrap: wrap; align-items: center; gap: 6px 12px; }
+#result-box h2 { color: #ffd700; font-size: clamp(.82em, 2.8vw, .96em); font-weight: bold; margin: 0; white-space: nowrap; }
+#result-body { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; flex: 1 1 auto; font-size: clamp(.7em, 2.2vw, .8em); color: #ccc; }
+#result-body .reveal { white-space: nowrap; }
+#result-body .reveal em { color: #aaa; font-style: normal; }
+#result-body .rsep { color: #555; margin: 0 2px; }
+.cbadge { display: inline-block; background: #fffde7; color: #222; border: 1px solid #bbb; border-radius: 2px; padding: 0 3px; font-size: .9em; font-weight: bold; line-height: 1.35; }
+.cbadge.red { color: #c00; }
+#result-box button { padding: 5px 14px; background: #ffd700; border: none; border-radius: 5px; font-size: clamp(.78em, 2.5vw, .88em); font-weight: bold; cursor: pointer; min-height: 32px; touch-action: manipulation; white-space: nowrap; flex-shrink: 0; }
 </style>
 </head>
 <body>

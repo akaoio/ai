@@ -5,6 +5,16 @@ const API = ""  // same origin
 const suitSymbol = { c: "♣", d: "♦", h: "♥", s: "♠" }
 const rankName = { T: "10", J: "J", Q: "Q", K: "K", A: "A" }
 
+// Compact inline badge for result overlay: A♦  (no line-break, no box height)
+function cardBadge(code) {
+    if (code === "??" || code === "?") return `<span class="cbadge">?</span>`
+    const rank = code.length === 2 ? (rankName[code[0]] || code[0]) : code.slice(0, -1)
+    const suit = code.slice(-1)
+    const sym = suitSymbol[suit] || suit
+    const red = suit === "h" || suit === "d" ? " red" : ""
+    return `<span class="cbadge${red}">${rank}${sym}</span>`
+}
+
 function cardHTML(code, faceDown = false, extraClass = "") {
     if (faceDown || code === "??" || code === "?") {
         return `<div class="card back ${extraClass}">🂠</div>`
@@ -133,13 +143,17 @@ function render(state) {
     const overlay = document.getElementById("result-overlay")
     if (state.handResult && state.stage === "idle") {
         const r = state.handResult
+        const pot = r.winners?.[0]?.amount ?? state.pot
+        const winId = r.winners?.[0]?.id
         document.getElementById("result-title").textContent =
-            r.winners?.[0]?.id === "human" ? "🎉 You win!" : `${r.winners?.[0]?.id} wins`
-        let body = `<div>Pot: ${r.winners?.[0]?.amount ?? state.pot}</div>`
+            winId === "human" ? `🎉 You win! · Pot: ${pot}` : `${winId} wins · Pot: ${pot}`
+        let body = ""
         if (r.showdown && r.revealed) {
-            body += r.revealed.map(rv =>
-                `<div class="reveal"><span>${rv.id}:</span><span class="cards-inline">${rv.hole.map(c => cardHTML(c)).join("")}</span><span>— ${rv.handLabel}</span></div>`
-            ).join("")
+            body = r.revealed.map(rv => {
+                const name = rv.id === "human" ? "<b>YOU</b>" : rv.id
+                const badges = rv.hole.map(cardBadge).join(" ")
+                return `<span class="reveal">${name}: ${badges} <em>${rv.handLabel}</em></span>`
+            }).join("<span class='rsep'>·</span>")
         }
         document.getElementById("result-body").innerHTML = body
         const btnNext = document.getElementById("btn-next")
