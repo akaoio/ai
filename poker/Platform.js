@@ -63,9 +63,11 @@ class PokerPlatform {
     _agentSpec(entry) {
         if (entry.network) return { id: entry.id, type: "neat" }
         const id = entry.id
-        if (id.includes("aggressive")) return { id, type: "heuristic", style: "aggressive" }
-        if (id.includes("heuristic")) return { id, type: "heuristic", style: "balanced" }
-        return { id, type: "tight-caller" }
+        if (!id.includes("heuristic")) return { id, type: "tight-caller" }
+        for (const style of ["aggressive", "tight", "loose", "balanced"]) {
+            if (id.includes(style)) return { id, type: "heuristic", style }
+        }
+        return { id, type: "heuristic", style: "balanced" }
     }
 
     playTable(entries = [], config = {}) {
