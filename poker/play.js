@@ -63,14 +63,14 @@ function render(state) {
 
         const betText = p.committedHand > 0 ? `bet: ${p.committedHand}` : ""
         const cardsHtml = p.hole.map(c => cardHTML(c)).join("")
-        const actionBadge = p.lastAction ? `<div class="paction ${p.lastAction.startsWith('raise') ? 'act-raise' : 'act-' + p.lastAction}">${p.lastAction}</div>` : ""
-        const allInBadge = p.allIn ? `<div class="paction act-allin">ALL IN</div>` : ""
+        const badgeClass = p.allIn ? "act-allin" : p.lastAction ? (p.lastAction.startsWith("raise") ? "act-raise" : `act-${p.lastAction}`) : ""
+        const badgeText  = p.allIn ? "ALL IN" : p.lastAction || ""
 
         el.innerHTML = `
             <div class="pname">${p.isHuman ? "YOU" : p.id}</div>
             <div class="pstack">${p.stack} chips</div>
             <div class="pbet">${betText}</div>
-            ${actionBadge || allInBadge}
+            <div class="paction-slot">${badgeText ? `<span class="paction ${badgeClass}">${badgeText}</span>` : ""}</div>
             <div class="cards">${cardsHtml}</div>
         `
     })

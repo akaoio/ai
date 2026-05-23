@@ -28,7 +28,7 @@ h1 { margin: 10px 0 4px; color: #ffd700; font-size: clamp(1em, 4vw, 1.4em); lett
 .seat.dealer .pname::before { content: "🔘 "; }
 .seat.you .pname { color: #8cf; }
 .seat .pstack { font-size: clamp(.6em, 2vw, .7em); color: #cfc; }
-.seat .pbet { font-size: clamp(.58em, 1.8vw, .66em); color: #ffc; min-height: 12px; }
+.seat .pbet { font-size: clamp(.58em, 1.8vw, .66em); color: #ffc; height: 14px; overflow: hidden; }
 .seat .cards { display: flex; gap: 2px; justify-content: center; margin-top: 3px; flex-wrap: wrap; }
 
 /* Cards */
@@ -38,7 +38,8 @@ h1 { margin: 10px 0 4px; color: #ffd700; font-size: clamp(1em, 4vw, 1.4em); lett
 .card.community-card { width: clamp(28px, 7vw, 44px); height: clamp(38px, 9.5vw, 62px); font-size: clamp(.65em, 2.2vw, .95em); }
 
 /* Action badges */
-.paction { display: inline-block; margin: 2px auto 0; padding: 1px 5px; border-radius: 8px; font-size: clamp(.52em, 1.6vw, .63em); font-weight: bold; }
+.paction-slot { height: 18px; display: flex; align-items: center; justify-content: center; overflow: hidden; }
+.paction { display: inline-block; padding: 1px 5px; border-radius: 8px; font-size: clamp(.52em, 1.6vw, .63em); font-weight: bold; white-space: nowrap; }
 .act-fold { background: #611; color: #faa; }
 .act-check { background: #163; color: #afa; }
 .act-call { background: #124; color: #acf; }
