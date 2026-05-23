@@ -19,14 +19,17 @@ function cardHTML(code, faceDown = false, extraClass = "") {
 function seatEl(seat) { return document.getElementById(`s${seat}`) }
 
 function ensureSeats(players) {
-    const wrap = document.getElementById("table-wrap")
-    players.forEach((p, idx) => {
-        let el = document.getElementById(`s${p.seat}`)
-        if (!el) {
-            el = document.createElement("div")
+    // Seats s2,s3,s4 are in top row; s0,s1,s5 in bottom row.
+    // All 6 are pre-created in HTML — this just handles unexpected extras.
+    const topSeats = new Set([2, 3, 4])
+    players.forEach(p => {
+        if (!document.getElementById(`s${p.seat}`)) {
+            const el = document.createElement("div")
             el.className = "seat"
             el.id = `s${p.seat}`
-            wrap.appendChild(el)
+            const row = topSeats.has(p.seat) ? "top" : "bottom"
+            const container = document.querySelector(`.seat-row.${row}`)
+            if (container) container.appendChild(el)
         }
     })
 }
