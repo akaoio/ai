@@ -127,7 +127,11 @@ class Network {
 
     getNeuron(id) {
         if (typeof id === "object") return id
-        return this.neurons.find(neuron => neuron.id === Number(id))
+        const numId = Number(id)
+        // _neuronIndex is a Map<id, Neuron> maintained during bulk operations (e.g. decode)
+        // for O(1) lookup. Falls back to O(n) linear scan otherwise.
+        if (this._neuronIndex) return this._neuronIndex.get(numId)
+        return this.neurons.find(neuron => neuron.id === numId)
     }
 
     initialize(config = {}) {
@@ -170,6 +174,7 @@ class Network {
                 config.layer.n.push(neuron)
             }
             this.n.push(neuron)
+            if (this._neuronIndex) this._neuronIndex.set(neuron.id, neuron)
             return neuron
         }
     }
@@ -189,9 +194,17 @@ class Network {
         const to = config[">"] || config.to || {}
 
         // If FROM and TO are neurons.
-        if (Array.isArray(from?.[">"]) && Array.isArray(to?.["<"]) && !this.connections.some(c => c.from.id === from.id && c.to.id === to.id)) {
-            const connection = new Connection(config)
-            return this.c.push(connection)
+        if (Array.isArray(from?.[">"]) && Array.isArray(to?.["<"])) {
+            // _connIndex is a Set<"fromId:toId"> maintained during bulk operations (e.g. decode)
+            // for O(1) duplicate detection. Falls back to O(n) linear scan otherwise.
+            const key = `${from.id}:${to.id}`
+            const exists = this._connIndex ? this._connIndex.has(key) : this.connections.some(c => c.from.id === from.id && c.to.id === to.id)
+            if (!exists) {
+                const connection = new Connection(config)
+                if (this._connIndex) this._connIndex.add(key)
+                return this.c.push(connection)
+            }
+            return
         }
 
         // If FROM and TO are layers.
@@ -373,6 +386,8 @@ class Network {
         this.initialize()
         // Restore non-objective properties.
         for (const key in data) if (typeof data[key] !== "object") this[key] = data[key]
+        // Build neuron index for O(1) lookup during decode — avoids O(n) linear scan per connection.
+        this._neuronIndex = new Map()
         // Restore network neurons.
         data.n.forEach(item => this.neuron({ ...item }))
         // Restore network layers.
@@ -382,7 +397,11 @@ class Network {
             this.layer({ ...item })
         })
         // Restore network connections.
+        // Use a Set index for O(1) duplicate detection — avoids O(n²) scan for large networks.
+        this._connIndex = new Set(this.connections.map(c => `${c.from.id}:${c.to.id}`))
         data.c.forEach(item => this.connect({ ...item }))
+        delete this._neuronIndex
+        delete this._connIndex
         return this
     }
 

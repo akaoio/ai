@@ -16,7 +16,7 @@ async function startNewGame() {
     const Ecosystem = (await import("./Ecosystem.js")).default
 
     // Load best genome from latest checkpoint
-    const ecosystem = new Ecosystem({ bitnet: true, size: 100 })
+    const ecosystem = new Ecosystem({ bitnet: true, size: 20 })
     const resumed = await loadLatestCheckpoint("poker/checkpoints/bitnet", ecosystem)
     const bestNetwork = ecosystem.best() || ecosystem.population[0]
 

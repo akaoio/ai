@@ -6,53 +6,86 @@ import { loadLatestCheckpoint, runNeatGeneration } from "./neat.js"
 const generations = process.argv[2] ? Number(process.argv[2]) : Infinity
 const BIG_BLIND = 10
 const CHECKPOINT_DIR = "poker/checkpoints/bitnet"
+const TARGET_NEURONS = 10000
 
 const ecosystem = new Ecosystem({
     bitnet: true,
     mutation: {
         bias: { change: [0, 0.5], max: 5, min: -5, rate: 0.08 },
-        connection: { disable: 0.001, enable: 0.02, rate: 0.3 },
-        // No weight drift — BitNet flips to random ternary in mutate()
-        weight: { rate: 0.2, change: [0, 1] },
-        node: 0.15, // Higher node growth to reach thousands of neurons
-        neuron: { rate: 0.005, max: 2000, enable: 0.02, disable: 0.001 },
-        timestep: { change: [0, 1], max: 3, min: 0, rate: 0.03 }
+        // addConnection is O(neurons²) — prohibitive at 10k neurons.
+        // New connections grow via node-splits (node mutation) instead.
+        connection: { disable: 0.001, enable: 0.02, rate: 0 },
+        weight: { rate: 0.3, change: [0, 1] },
+        node: 0.05,
+        neuron: { rate: 0.005, max: 6000, enable: 0.02, disable: 0.001 },
+        timestep: { change: [0, 1], max: 3, min: 0, rate: 0.01 }
     },
     recurrent: true,
-    size: 100,
-    targetSpecies: 10,
+    size: 20,
+    targetSpecies: 4,
     minCompatibility: 0.01,
     compatibilityStep: 0.1
 })
 
-// Resume from latest checkpoint, or seed fresh if none exists
+// Resume from latest checkpoint, or pre-grow a fresh 10k-neuron sparse template
 const resumed = await loadLatestCheckpoint(CHECKPOINT_DIR, ecosystem)
 let startGeneration = 1
 if (resumed) {
     startGeneration = resumed.generation + 1
     console.log(`Resuming from ${resumed.file} (gen ${resumed.generation})`)
 } else {
-    // Seed: small topology so NEAT can grow toward thousands via mutations
-    // 45 inputs → 16 hidden → 6 outputs (grows from here)
+    // Phase 1: minimal seed
     ecosystem.seed({ layers: [OBSERVATION_SIZE, 16, 6], recurrentSteps: 2, type: "neat" })
-    console.log(`Fresh start: ${OBSERVATION_SIZE}→16→6 | neurons=${ecosystem.population[0].neurons.length} | connections=${ecosystem.population[0].connections.length}`)
+    const template = ecosystem.population[0]
+    const n0 = template.neurons.length  // ~71
+    const splitsNeeded = TARGET_NEURONS - n0
+
+    // Phase 2: grow template to TARGET_NEURONS via node-splits.
+    // Each split: disables 1 feedforward connection, adds 1 neuron + 2 connections (net +1 conn).
+    // After splitsNeeded splits: n0+splitsNeeded neurons, n0+splitsNeeded active connections.
+    process.stdout.write(`Pre-growing ${n0} → ${TARGET_NEURONS} neurons (${splitsNeeded} node-splits)`)
+    for (let i = 0; i < splitsNeeded; i++) {
+        ecosystem.mutateAddNode(template)
+        if ((i + 1) % 500 === 0) process.stdout.write(` ${n0 + i + 1}`)
+    }
+    process.stdout.write("\n")
+
+    const finalNeurons = template.neurons.length
+    const finalConnections = template.connections.filter(c => c.s).length
+    console.log(
+        `Template: ${finalNeurons} neurons | ${finalConnections} active connections ` +
+        `| sparsity: ${(finalConnections / finalNeurons).toFixed(2)} conn/neuron`
+    )
+
+    // Phase 3: clone template to rest of population, re-randomize weights for diversity
+    for (let i = 1; i < ecosystem.size; i++) {
+        const clone = ecosystem.clone(template)
+        clone.connections.forEach(c => {
+            if (c.s) c.weight = [-1, 0, 1][Math.floor(Math.random() * 3)]
+        })
+        ecosystem.population[i] = clone
+    }
+
+    console.log(`Population seeded: ${ecosystem.size} genomes @ ${finalNeurons} neurons each`)
 }
 
 const HANDS_PER_TABLE = 100
+const TABLES = 20
+const ROUNDS = 8
 
 const platform = new PokerPlatform({
     bigBlind: BIG_BLIND,
     handsPerTable: HANDS_PER_TABLE,
     replacement: true,
     smallBlind: BIG_BLIND / 2,
-    startingStack: 2000,  // 200BB — enough cushion for persistent bankroll across rounds
+    startingStack: 2000,
     tableSize: 8
 })
 
 const endGeneration = startGeneration + generations - 1
 const rangeLabel = isFinite(endGeneration) ? `gen ${startGeneration}→${endGeneration}` : `gen ${startGeneration}→∞`
-console.log(`BitNet NEAT Poker — ${rangeLabel} | pop=${ecosystem.size}`)
-console.log(`Platform: ${platform.tableSize} seats × ${HANDS_PER_TABLE} hands/table × 15 rounds = ${HANDS_PER_TABLE * 15} hands/genome | BB=${BIG_BLIND}`)
+console.log(`BitNet NEAT Poker — ${rangeLabel} | pop=${ecosystem.size} | target=${TARGET_NEURONS} neurons`)
+console.log(`Platform: ${platform.tableSize} seats × ${HANDS_PER_TABLE} hands/table × ${ROUNDS} rounds = ${HANDS_PER_TABLE * ROUNDS} hands/genome | BB=${BIG_BLIND}`)
 console.log("─".repeat(70))
 
 const t0 = Date.now()
@@ -61,16 +94,8 @@ let overallBest = null
 for (let generation = startGeneration; generation <= endGeneration; generation++) {
     const tGen = Date.now()
 
-    let result
-    result = await runNeatGeneration(ecosystem, {
+    const result = await runNeatGeneration(ecosystem, {
         bigBlind: BIG_BLIND,
-        // EMA smoothing: blend 25% new measurement + 75% previous fitness each generation.
-        // Poker evaluation has very high variance (~50-100 BB/100 std dev per 1500 hands).
-        // alpha=0.25 means veterans accumulate 4 generations of evidence before a single
-        // lucky result can displace them; alpha=0.55 was too high — fresh offspring with
-        // one lucky raw score could out-rank proven elites.
-        // Only genomes that survived a prior generation carry _previousFitness; fresh
-        // children (newly born this generation) always receive their raw score.
         fitnessSmoothing: 0.25,
         baseline: [
             { id: "tight-caller-1", createAgent: () => new TightCallerAgent({ id: "tight-caller-1" }) },
@@ -78,20 +103,15 @@ for (let generation = startGeneration; generation <= endGeneration; generation++
             { id: "heuristic-balanced", createAgent: () => new HeuristicAgent({ id: "heuristic-balanced", style: "balanced" }) },
             { id: "heuristic-aggressive", createAgent: () => new HeuristicAgent({ id: "heuristic-aggressive", style: "aggressive" }) }
         ],
-        // Fitness = BB/100 (normalized by maxHands) - allIn penalty
-        // Normalizing by maxHands (not actual hands) means busting early is punished naturally:
-        // you lose chips AND miss earning from future rounds — no explicit bust penalty needed.
         fitness: (standing) => {
             if (!standing.maxHands || !standing.hands) return -1000
-            // Divide by maxHands so surviving agents earn more fitness per chip won
             const bb100 = (standing.chipsWon / standing.maxHands) / BIG_BLIND * 100
-            // allInRate over actual played hands (not maxHands) — reflects real behavior frequency
             const allInRate = (standing.allInRaises || 0) / standing.hands
             const allInPenalty = allInRate * BIG_BLIND * 800
             return bb100 - allInPenalty
         },
         checkpoint: { directory: CHECKPOINT_DIR, generation },
-        generation: { hands: HANDS_PER_TABLE, rounds: 15, tableSize: 8, tables: 100 },
+        generation: { hands: HANDS_PER_TABLE, rounds: ROUNDS, tableSize: 8, tables: TABLES },
         platform
     })
 
