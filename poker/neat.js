@@ -99,11 +99,32 @@ export const saveCheckpoint = async (ecosystem, result, config = {}) => {
     let summaries = {}
     try { summaries = JSON.parse(await readFile(summariesFile, "utf8")) } catch {}
     // Add new entry
-    const bestFitness = Math.max(...payload.population.map(p => p.fitness ?? -Infinity))
+    const fitnesses = payload.population.map(p => p.fitness ?? -Infinity)
+    const bestFitness = Math.max(...fitnesses)
     summaries[path.basename(file)] = bestFitness
     // Remove pruned entries
     for (const f of toDelete) delete summaries[f]
     await writeFile(summariesFile, JSON.stringify(summaries), "utf8")
+
+    // Maintain viz-cache.json — rich per-generation summaries for the dashboard.
+    const vizCacheFile = path.join(directory, "viz-cache.json")
+    let vizCache = {}
+    try { vizCache = JSON.parse(await readFile(vizCacheFile, "utf8")) } catch {}
+    const avgFitness = fitnesses.reduce((a, b) => a + b, 0) / fitnesses.length
+    const neurons = payload.population.map(p => (p.network?.n || []).length)
+    const maxNeurons = neurons.length ? Math.max(...neurons) : 0
+    const avgNeurons = neurons.length ? Math.round(neurons.reduce((a, b) => a + b, 0) / neurons.length) : 0
+    vizCache[path.basename(file)] = {
+        avgFitness: parseFloat(avgFitness.toFixed(2)),
+        avgNeurons,
+        bestFitness: parseFloat(bestFitness.toFixed(2)),
+        file: path.basename(file),
+        generation,
+        maxNeurons,
+        species: (payload.species || []).length
+    }
+    for (const f of toDelete) delete vizCache[f]
+    await writeFile(vizCacheFile, JSON.stringify(vizCache), "utf8")
 
     return { file, payload }
 }
@@ -120,6 +141,44 @@ export const loadPeakCheckpoint = async (directory, ecosystem) => {
         return result ? { ...result, isPeak: true } : loadLatestCheckpoint(directory, ecosystem)
     } catch {
         return loadLatestCheckpoint(directory, ecosystem)
+    }
+}
+
+// Lightweight loader: reads peak checkpoint and returns only the top N networks.
+// Skips full ecosystem restore (no ensureCanonical, no innovation history) — suitable for play/inference.
+export const loadTopNetworks = async (directory, topN = 4) => {
+    try {
+        // Find the peak checkpoint file
+        let peakFile = null
+        try {
+            const summaries = JSON.parse(await readFile(path.join(directory, "summaries.json"), "utf8"))
+            const entries = Object.entries(summaries)
+            if (entries.length) {
+                const [peakName] = entries.reduce((best, cur) => cur[1] > best[1] ? cur : best)
+                peakFile = path.join(directory, peakName)
+            }
+        } catch {}
+        if (!peakFile) {
+            const files = (await readdir(directory)).filter(f => f.startsWith("generation-") && f.endsWith(".json")).sort()
+            if (!files.length) return null
+            peakFile = path.join(directory, files[files.length - 1])
+        }
+
+        const data = JSON.parse(await readFile(peakFile, "utf8"))
+        const sorted = [...(data.population || [])].sort((a, b) => (b.fitness ?? 0) - (a.fitness ?? 0))
+        const top = sorted.slice(0, topN)
+
+        const Network = (await import("../Network.js")).default
+        const networks = top.map(item => {
+            const net = new Network(item.network)
+            net.fitness = item.fitness ?? 0
+            net.score = item.score ?? 0
+            return net
+        })
+
+        return { networks, generation: data.generation, isPeak: true, file: peakFile }
+    } catch {
+        return null
     }
 }
 

@@ -5,6 +5,9 @@ import url from "url"
 
 const port = 3000
 
+// ─── In-memory viz-cache (persisted to disk, avoids re-parsing 61MB checkpoint files) ──
+const _vizCache = {} // dir → { filename: summaryObject }
+
 // ─── Interactive Poker Game Session ──────────────────────────────────────────
 let gameSession = null
 let gameLoopPromise = null
@@ -12,22 +15,17 @@ let gameLoopPromise = null
 async function startNewGame() {
     const { InteractiveGame, HumanAgent } = await import("./poker/InteractiveGame.js")
     const { createNeatAgent } = await import("./poker/agents.js")
-    const { loadPeakCheckpoint } = await import("./poker/neat.js")
-    const Ecosystem = (await import("./Ecosystem.js")).default
+    const { loadTopNetworks } = await import("./poker/neat.js")
 
-    // Load top genomes from peak checkpoint (highest ever best fitness), not just latest
-    const ecosystem = new Ecosystem({ size: 150 })
-    const resumed = await loadPeakCheckpoint("poker/checkpoints/neat", ecosystem)
-
-    // Load top 4 genomes from peak checkpoint — all opponents are evolved AI
-    const sortedPop = [...ecosystem.population].sort((a, b) => (b.fitness ?? -Infinity) - (a.fitness ?? -Infinity))
+    // Load only the top 4 genomes from peak checkpoint — skips full ecosystem restore
+    const resumed = await loadTopNetworks("poker/checkpoints/neat", 4)
     const gen = resumed?.generation ?? 0
     const peakLabel = resumed?.isPeak ? ` (peak)` : ""
 
     const humanAgent = new HumanAgent()
     const players = [
         { id: "human", agent: humanAgent },
-        ...sortedPop.slice(0, 4).map((net, i) => ({
+        ...(resumed?.networks ?? []).map((net, i) => ({
             id: `AI-gen${gen}${peakLabel}-#${i + 1}`,
             agent: createNeatAgent(net)
         }))
@@ -69,10 +67,22 @@ http.createServer(function (request, response) {
         const params = new URLSearchParams(parsed.query || "")
         const dir = "." + (params.get("dir") || "/poker/checkpoints/bitnet")
         try {
+            // Use a disk cache (viz-cache.json) to avoid re-parsing large checkpoint files.
+            // Each entry: { generation, bestFitness, avgFitness, maxNeurons, avgNeurons, species, file }
+            // Use in-memory cache (populated from viz-cache.json on first access)
+            if (!_vizCache[dir]) {
+                _vizCache[dir] = {}
+                try { Object.assign(_vizCache[dir], JSON.parse(fs.readFileSync(path.join(dir, "viz-cache.json"), "utf8"))) } catch {}
+            }
+            const cache = _vizCache[dir]
+
             const files = fs.readdirSync(dir)
                 .filter(f => f.startsWith("generation-") && f.endsWith(".json"))
                 .sort()
+
+            let cacheUpdated = false
             const summaries = files.map(file => {
+                if (cache[file]) return cache[file]
                 try {
                     const data = JSON.parse(fs.readFileSync(path.join(dir, file), "utf8"))
                     const fitnesses = (data.population || []).map(p => p.fitness ?? 0)
@@ -81,7 +91,7 @@ http.createServer(function (request, response) {
                     const neurons = (data.population || []).map(p => (p.network?.n || []).length)
                     const maxNeurons = neurons.length ? Math.max(...neurons) : 0
                     const avgNeurons = neurons.length ? Math.round(neurons.reduce((a, b) => a + b, 0) / neurons.length) : 0
-                    return {
+                    const summary = {
                         avgFitness: parseFloat(avgFitness.toFixed(2)),
                         avgNeurons,
                         bestFitness: parseFloat(bestFitness.toFixed(2)),
@@ -90,10 +100,17 @@ http.createServer(function (request, response) {
                         maxNeurons,
                         species: (data.species || []).length
                     }
+                    cache[file] = summary
+                    cacheUpdated = true
+                    return summary
                 } catch {
                     return null
                 }
             }).filter(Boolean)
+
+            // Persist updated cache to disk asynchronously
+            if (cacheUpdated) fs.writeFile(path.join(dir, "viz-cache.json"), JSON.stringify(cache), () => {})
+
             response.writeHead(200, { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" })
             response.end(JSON.stringify(summaries))
         } catch (e) {

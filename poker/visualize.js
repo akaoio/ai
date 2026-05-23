@@ -1,7 +1,7 @@
 import { Visualization } from "../Visualization.js"
 import Network from "../Network.js"
 
-const CHECKPOINT_DIR = "/poker/checkpoints/bitnet"
+const CHECKPOINT_DIR = "/poker/checkpoints/neat"
 let autoInterval = null
 let summaries = []
 
